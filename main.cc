@@ -79,6 +79,7 @@
 #include "thrift/controller.hh"
 
 #include "alternator/server.hh"
+#include "s3/server.hh"
 #include "redis/service.hh"
 #include "cdc/log.hh"
 #include "cdc/cdc_extension.hh"
@@ -1298,6 +1299,62 @@ int main(int ac, char** av) {
                 };
 
                 ss.register_client_shutdown_hook("alternator", std::move(stop_alternator));
+            }
+
+            if (cfg->s3_port() || cfg->s3_https_port()) {
+                static sharded<s3::server> s3_server;
+
+                net::inet_address addr;
+                try {
+                    addr = net::dns::get_host_by_name(cfg->s3_address(), family).get0().addr_list.front();
+                } catch (...) {
+                    std::throw_with_nested(std::runtime_error(fmt::format("Unable to resolve s3_address {}", cfg->s3_address())));
+                }
+                // Create an smp_service_group to be used for limiting the
+                // concurrency when forwarding Alternator request between
+                // shards - if necessary for LWT.
+                smp_service_group_config c;
+                c.max_nonlocal_requests = 5000;
+                smp_service_group ssg = create_smp_service_group(c).get0();
+                s3_server.start(std::ref(proxy), std::ref(mm), std::ref(sys_dist_ks), std::ref(service::get_storage_service())).get();
+                std::optional<uint16_t> s3_port;
+                if (cfg->s3_port()) {
+                    s3_port = cfg->s3_port();
+                }
+                std::optional<uint16_t> s3_https_port;
+                std::optional<tls::credentials_builder> creds;
+                if (cfg->s3_https_port()) {
+                    s3_https_port = cfg->s3_https_port();
+                    creds.emplace();
+                    auto opts = cfg->s3_encryption_options();
+                    creds->set_dh_level(tls::dh_params::level::MEDIUM);
+                    auto cert = get_or_default(opts, "certificate", db::config::get_conf_sub("scylla.crt").string());
+                    auto key = get_or_default(opts, "keyfile", db::config::get_conf_sub("scylla.key").string());
+                    creds->set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+                    auto prio = get_or_default(opts, "priority_string", sstring());
+                    creds->set_priority_string(db::config::default_tls_priority);
+                    if (!prio.empty()) {
+                        creds->set_priority_string(prio);
+                    }
+                }
+                bool s3_enforce_authorization = cfg->s3_enforce_authorization();
+                with_scheduling_group(dbcfg.statement_scheduling_group,
+                        [addr, s3_port, s3_https_port, creds = std::move(creds), s3_enforce_authorization] () mutable {
+                    return s3_server.invoke_on_all(
+                            [addr, s3_port, s3_https_port, creds = std::move(creds), s3_enforce_authorization] (s3::server& server) mutable {
+                        auto& ss = service::get_local_storage_service();
+                        return server.init(addr, s3_port, s3_https_port, creds, s3_enforce_authorization, &ss.service_memory_limiter());
+                    }).then([addr, s3_port, s3_https_port] {
+                        startlog.info("Alternator server listening on {}, HTTP port {}, HTTPS port {}",
+                                addr, s3_port ? std::to_string(*s3_port) : "OFF", s3_https_port ? std::to_string(*s3_https_port) : "OFF");
+                    });
+                }).get();
+                auto stop_s3 = [ssg] {
+                    s3_server.stop().get();
+                    destroy_smp_service_group(ssg).get();
+                };
+
+                ss.register_client_shutdown_hook("s3", std::move(stop_s3));
             }
 
             static redis_service redis;

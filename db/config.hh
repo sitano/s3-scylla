@@ -255,6 +255,7 @@ public:
     named_value<string_map> server_encryption_options;
     named_value<string_map> client_encryption_options;
     named_value<string_map> alternator_encryption_options;
+    named_value<string_map> s3_encryption_options;
     named_value<uint32_t> ssl_storage_port;
     named_value<bool> enable_in_memory_data_store;
     named_value<bool> enable_cache;
@@ -324,6 +325,11 @@ public:
     named_value<bool> alternator_enforce_authorization;
     named_value<sstring> alternator_write_isolation;
     named_value<uint32_t> alternator_streams_time_window_s;
+
+    named_value<uint16_t> s3_port;
+    named_value<uint16_t> s3_https_port;
+    named_value<sstring> s3_address;
+    named_value<bool> s3_enforce_authorization;
 
     named_value<bool> abort_on_ebadf;
 

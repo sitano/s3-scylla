@@ -909,6 +909,10 @@ alternator = [
        'alternator/streams.cc',
 ]
 
+s3 = [
+       's3/server.cc',
+]
+
 redis = [
         'redis/service.cc',
         'redis/server.cc',
@@ -985,7 +989,7 @@ scylla_raft_dependencies = [
 ]
 
 deps = {
-    'scylla': idls + ['main.cc', 'release.cc', 'utils/build_id.cc'] + scylla_core + api + alternator + redis,
+    'scylla': idls + ['main.cc', 'release.cc', 'utils/build_id.cc'] + scylla_core + api + alternator + s3+ redis,
     'test/tools/cql_repl': idls + ['test/tools/cql_repl.cc'] + scylla_core + scylla_tests_generic_dependencies,
     #FIXME: we don't need all of scylla_core here, only the types module, need to modularize scylla_core.
     'tools/scylla-types': idls + ['tools/scylla-types.cc'] + scylla_core,

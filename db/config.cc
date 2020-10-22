@@ -675,6 +675,15 @@ db::config::config(std::shared_ptr<db::extensions> exts)
         "The advanced settings are:\n"
         "\n"
         "\tpriority_string : GnuTLS priority string controlling TLS algorithms used/allowed.")
+    , s3_encryption_options(this, "s3_encryption_options", value_status::Used, {/*none*/},
+        "When S3 via HTTPS is enabled with alternator_https_port, where to take the key and certificate. The available options are:\n"
+        "\n"
+        "\tcertificate: (Default: conf/scylla.crt) The location of a PEM-encoded x509 certificate used to identify and encrypt the client/server communication.\n"
+        "\tkeyfile: (Default: conf/scylla.key) PEM Key file associated with certificate.\n"
+        "\n"
+        "The advanced settings are:\n"
+        "\n"
+        "\tpriority_string : GnuTLS priority string controlling TLS algorithms used/allowed.")
     , ssl_storage_port(this, "ssl_storage_port", value_status::Used, 7001,
         "The SSL port for encrypted communication. Unused unless enabled in encryption_options.")
     , enable_in_memory_data_store(this, "enable_in_memory_data_store", value_status::Used, false, "Enable in memory mode (system tables are always persisted)")
@@ -762,6 +771,10 @@ db::config::config(std::shared_ptr<db::extensions> exts)
     , alternator_enforce_authorization(this, "alternator_enforce_authorization", value_status::Used, false, "Enforce checking the authorization header for every request in Alternator")
     , alternator_write_isolation(this, "alternator_write_isolation", value_status::Used, "", "Default write isolation policy for Alternator")
     , alternator_streams_time_window_s(this, "alternator_streams_time_window_s", value_status::Used, 10, "CDC query confidence window for alternator streams")
+    , s3_port(this, "s3_port", value_status::Used, 0, "S3 API port")
+    , s3_https_port(this, "s3_https_port", value_status::Used, 0, "S3 API HTTPS port")
+    , s3_address(this, "s3_address", value_status::Used, "0.0.0.0", "S3 API listening address")
+    , s3_enforce_authorization(this, "s3_enforce_authorization", value_status::Used, false, "Enforce checking the authorization header for every request in S3")
     , abort_on_ebadf(this, "abort_on_ebadf", value_status::Used, true, "Abort the server on incorrect file descriptor access. Throws exception when disabled.")
     , redis_port(this, "redis_port", value_status::Used, 0, "Port on which the REDIS transport listens for clients.")
     , redis_ssl_port(this, "redis_ssl_port", value_status::Used, 0, "Port on which the REDIS TLS native transport listens for clients.")
