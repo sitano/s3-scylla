@@ -114,3 +114,12 @@ def delete_items(handler, bucket_name, keys):
         xml += xml_templates.deleted_deleted_xml.format(key=key)
     xml = xml_templates.deleted_xml.format(contents=xml)
     handler.write(xml)
+
+def create_multipart_upload(handler, bucket_name, key):
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'application/xml')
+    handler.end_headers()
+    # TODO(mmal): handler.server.store.create_multipart_upload(bucket_name, key)
+    xml = xml_templates.create_multipart_upload_xml.format(
+        bucket_name=bucket_name, key=key, upload_id='TODO')
+    handler.write(xml)

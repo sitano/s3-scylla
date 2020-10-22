@@ -77,3 +77,11 @@ deleted_deleted_xml = '''\
   <Deleted>
     <Key>{key}</Key>
   </Deleted>'''
+
+create_multipart_upload_xml = '''\
+<?xml version="1.0" encoding="UTF-8"?>
+<InitiateMultipartUploadResult>
+   <Bucket>{bucket_name}</Bucket>
+   <Key>{key}</Key>
+   <UploadId>{upload_id}</UploadId>
+</InitiateMultipartUploadResult>'''

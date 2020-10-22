@@ -13,7 +13,7 @@ from socketserver import ThreadingMixIn
 
 import sys
 
-from .actions import delete_item, delete_items, get_acl, get_item, list_buckets, ls_bucket
+from .actions import *
 from .scylla_store import ScyllaStore
 
 logging.basicConfig(level=logging.INFO)
@@ -116,12 +116,14 @@ class S3Handler(BaseHTTPRequestHandler):
 
         if path == '/' and bucket_name and 'delete' in qs:
             req_type = 'delete_keys'
-
         else:
             if not bucket_name:
                 bucket_name, sep, item_name = path.strip('/').partition('/')
             else:
                 item_name = path.strip('/')
+
+            if 'uploads' in qs:
+                req_type = 'uploads'
 
             if not item_name and 'delete' in qs:
                 req_type = 'delete_keys'
@@ -134,6 +136,8 @@ class S3Handler(BaseHTTPRequestHandler):
             for obj in root.findall('Object'):
                 keys.append(obj.find('Key').text)
             delete_items(self, bucket_name, keys)
+        elif req_type == 'uploads':
+            create_multipart_upload(self, bucket_name, item_name)
         else:
             self.write('%s: [%s] %s' % (req_type, bucket_name, item_name))
 
