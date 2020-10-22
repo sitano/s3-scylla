@@ -346,7 +346,7 @@ def version_to_metadata(ver):
         'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
         'md5': ver.md5,
         'size': ver.size,
-        'blob_id': ver.blob_id,
+        'blob_id': str(ver.blob_id),
         'chunk_size': ver.chunk_size,
         'chunks_per_part': ver.chunks_per_part,
     }
