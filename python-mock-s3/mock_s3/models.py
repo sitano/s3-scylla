@@ -29,3 +29,28 @@ class S3Item(object):
             self.creation_date = kwargs['creation_date']
         if 'modified_date' in kwargs:
             self.creation_date = kwargs['modified_date']
+
+
+class ObjectHeader(object):
+    def __init__(self, bucket_id, key, object_id, version, metadata):
+        self.bucket_id = bucket_id
+        self.key = key
+        self.object_id = object_id
+        self.version = version
+        self.metadata = metadata
+
+
+class VersionHeader(object):
+    def __init__(self, object_id, bucket_id, version, blob_id, chunk_size, chunks_per_part,
+                 content_type, creation_date, md5, size, metadata):
+        self.object_id = object_id
+        self.bucket_id = bucket_id
+        self.version = version
+        self.blob_id = blob_id
+        self.chunk_size = chunk_size
+        self.chunks_per_part = chunks_per_part
+        self.content_type = content_type
+        self.creation_date = creation_date
+        self.md5 = md5
+        self.size = size
+        self.metadata = metadata

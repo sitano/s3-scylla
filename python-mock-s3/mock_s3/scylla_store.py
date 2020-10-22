@@ -1,14 +1,17 @@
 from datetime import datetime
 import logging
-from uuid import UUID
+import json
 import hashlib
 from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
 
-from .models import Bucket, BucketQuery, S3Item
+from .models import Bucket, BucketQuery, S3Item, ObjectHeader, VersionHeader
 
 
 class ScyllaStore(object):
     keyspace = 's3'
+
+    chunk_size = 512  # bytes
+    chunks_per_partition = 512
 
     def __init__(self, hosts=_NOT_SET, port=9042):
         self.cluster = Cluster(contact_points=hosts, port=port,
@@ -58,11 +61,11 @@ class ScyllaStore(object):
             '''
             CREATE TABLE IF NOT EXISTS object (
                 bucket_id UUID,
-                name TEXT,
+                key TEXT,
                 object_id UUID,
                 version INT,
                 metadata TEXT,
-                PRIMARY KEY (bucket_id, name)
+                PRIMARY KEY (bucket_id, key)
             );
             ''',
             '''
@@ -72,6 +75,7 @@ class ScyllaStore(object):
                 version INT,
                 blob_id UUID,
                 chunk_size INT,
+                chunks_per_part INT,
                 content_type TEXT,
                 creation_date TIMESTAMP,
                 md5 TEXT,
@@ -83,9 +87,9 @@ class ScyllaStore(object):
             '''
             CREATE TABLE IF NOT EXISTS chunk (
                 blob_id UUID,
-                partition int,
-                ix int,
-                data blob,
+                partition INT,
+                ix INT,
+                data BLOB,
                 PRIMARY KEY ((blob_id, partition), ix)
             ) WITH CLUSTERING ORDER BY (ix ASC);
             '''
@@ -99,7 +103,7 @@ class ScyllaStore(object):
 
         if bucket_info:
             bucket_id, creation_date = bucket_info
-            return Bucket(bucket_name, bucket_id, creation_date)
+            return Bucket(name=bucket_name, bucket_id=bucket_id, creation_date=creation_date)
         else:
             return None
 
@@ -170,18 +174,92 @@ class ScyllaStore(object):
 
         return 'mock some fragment'
 
+    def get_object_header(self, bucket, item_name):
+        logging.info('get object header [%s/%s]' % (bucket.bucket_id, item_name))
+
+        row = self.session.execute("SELECT * FROM object WHERE bucket_id = %s AND key = %s",
+                                   (bucket.bucket_id, item_name)).one()
+
+        if row:
+            return ObjectHeader(
+                bucket_id=row.bucket_id,
+                key=row.key,
+                object_id=row.object_id,
+                version=row.version,
+                metadata=row.metadata,
+            )
+        else:
+            return None
+
+    def get_version_header(self, object_id, version):
+        logging.info('get version header [%s/%d]' % (object_id, version))
+
+        row = self.session.execute("SELECT * FROM version WHERE object_id = %s AND version = %s",
+                                   (object_id, version)).one()
+
+        if row:
+            return VersionHeader(
+                object_id=row.object_id,
+                bucket_id=row.bucket_id,
+                version=row.version,
+                blob_id=row.blob_id,
+                chunk_size=row.chunk_size,
+                chunks_per_part=row.chunks_per_part,
+                content_type=row.content_type,
+                creation_date=row.creation_date,
+                md5=row.md5,
+                size=row.size,
+                metadata=row.metadata
+            )
+        else:
+            return None
+
     def store_item(self, bucket, item_name, headers, size, data):
-        logging.info(f'store_item {bucket.name}/{item_name} ... of size: {size}')
+        logging.info(f'store_item {bucket.name}/{item_name}: {size} bytes')
 
-        # TODO: Hardcoded small chunks, blob_id just for the testing purposes
-        m = self.write_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), data, size, 512, 512)
+        # load object header
+        obj = self.get_object_header(bucket, item_name)
+        if obj is None:
+            self.session.execute("INSERT INTO object (bucket_id, key, object_id, version, metadata) "
+                                 "VALUES (%s, %s, uuid(), 1, '')",
+                                 (bucket.bucket_id, item_name))
+            obj = self.get_object_header(bucket, item_name)
+        logging.info(f'object_header {obj.object_id}#{obj.version}')
 
+        # prepare next object version header
+        ver = self.get_version_header(obj.object_id, obj.version)
+        version = 1
+        if ver:
+            version = ver.version + 1
+            # TODO: ensure version does not exist
+
+        content_type = headers['content-type']
+        self.session.execute("INSERT INTO version (object_id, bucket_id, version, blob_id, "
+                             "chunk_size, chunks_per_part, content_type, creation_date, md5, size, metadata) "
+                             "VALUES (%s, %s, %s, uuid(),"
+                             "%s, %s, %s, currentTimestamp(), '', %s, '')",
+                             (obj.object_id, obj.bucket_id, version,  # uuid()
+                              self.chunk_size, self.chunks_per_partition, content_type, size))
+
+        ver = self.get_version_header(obj.object_id, version)
+        logging.info(f'version_header {ver.object_id}#{ver.version}')
+
+        # write chunks
+        digest = self.write_chunks(ver.blob_id, data, size, self.chunk_size, self.chunks_per_partition)
+
+        # update metadata+md5
         metadata = {
-            'content_type': headers['content-type'],
-            'creation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-            'md5': m.hexdigest(),
+            'content_type': content_type,
+            'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'md5': digest,
             'size': size,
         }
+
+        self.session.execute("UPDATE version SET md5 = %s, metadata = %s WHERE object_id = %s AND version = %s",
+                             (digest, json.dumps(metadata), ver.object_id, ver.version))
+
+        self.session.execute("UPDATE object SET version = %s WHERE bucket_id = %s AND key = %s",
+                             (ver.version, obj.bucket_id, obj.key))
 
         return S3Item(f'{bucket.name}/{item_name}', **metadata)
 
@@ -213,7 +291,7 @@ class ScyllaStore(object):
             m.update(data)
             self.session.execute(self.insert_chunk_stmt, [blob_id, partition, ix, data])
 
-        return m
+        return m.hexdigest()
 
     def read_chunks(self, blob_id, output_stream, start_byte, length, chunk_size, partition_chunks):
         end_byte = start_byte + length - 1
