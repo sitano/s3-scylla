@@ -133,11 +133,14 @@ class ScyllaStore(object):
 
         return self.get_bucket(bucket_name)
 
+    # aws s3 --endpoint http://localhost:8000 ls s3://ivan
+    # aws --endpoint http://localhost:8000 --debug s3api list-objects --bucket ivan
     def get_all_keys(self, bucket, **kwargs):
         matches = []
 
         rows = self.session.execute(self.list_all_keys_stmt, [bucket.bucket_id])
 
+        # TODO: max keys support and other optional args: marker, prefix, max_keys, delimeter
         for row in rows:
             metadata = object()
             obj = row_to_object(row)
