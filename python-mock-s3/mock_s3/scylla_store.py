@@ -26,6 +26,7 @@ class ScyllaStore(object):
                                                        "(name, bucket_id, creation_date, metadata) VALUES "
                                                        "(?, uuid(), currentTimestamp(), NULL)")
         self.list_all_buckets_stmt = self.session.prepare("SELECT * FROM bucket")
+        self.list_all_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ? ALLOW FILTERING")
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM bucket WHERE name = ?")
         self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk (blob_id, partition, ix, data) VALUES "
                                                       "(?, ?, ?, ?)")
@@ -133,22 +134,25 @@ class ScyllaStore(object):
         return self.get_bucket(bucket_name)
 
     def get_all_keys(self, bucket, **kwargs):
-        # Mock data
-        if bucket.name == 'test':
-            matches = []
-            metadata = {}
-            metadata['size'] = 15
-            metadata['md5'] = 'testing'
-            metadata['content_type'] = 'testing'
-            metadata['creation_date'] = datetime.now()
+        matches = []
 
-            example_query = self.session.execute('SELECT cql_version FROM system.local').one()
-            example_s3_item = 'scylla_cql_' + str(example_query[0])
+        rows = self.session.execute(self.list_all_keys_stmt, [bucket.bucket_id])
 
-            matches.append(S3Item(example_s3_item, **metadata))
-            return BucketQuery(bucket, matches, False, **kwargs)
+        for row in rows:
+            metadata = object()
+            obj = row_to_object(row)
+            if obj.metadata is None or obj.metadata == '':
+                ver = self.get_version_header(obj.object_id, obj.version)
+                if ver is None:
+                    logging.info("missing version")
+                    return None
+                metadata = version_to_metadata(ver)
+            else:
+                metadata = json.loads(obj.metadata)
+            metadata['version'] = obj.version
+            matches.append(S3Item(bucket.name + '/' + obj.key, **metadata))
 
-        return None
+        return BucketQuery(bucket, matches, False, **kwargs)
 
     # Item operations
 
@@ -168,17 +172,7 @@ class ScyllaStore(object):
             logging.info("missing version")
             return None
 
-        metadata = {
-            'content_type': ver.content_type,
-            'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-            'md5': ver.md5,
-            'size': ver.size,
-            'blob_id': ver.blob_id,
-            'chunk_size': ver.chunk_size,
-            'chunks_per_part': ver.chunks_per_part,
-        }
-
-        item = S3Item(bucket_name + '/' + item_name, **metadata)
+        item = S3Item(bucket_name + '/' + item_name, **version_to_metadata(ver))
 
         return item
 
@@ -188,19 +182,9 @@ class ScyllaStore(object):
     def get_object_header(self, bucket_id, item_name):
         logging.info('get object header [%s/%s]' % (bucket_id, item_name))
 
-        row = self.session.execute("SELECT * FROM object WHERE bucket_id = %s AND key = %s",
-                                   (bucket_id, item_name)).one()
-
-        if row:
-            return ObjectHeader(
-                bucket_id=row.bucket_id,
-                key=row.key,
-                object_id=row.object_id,
-                version=row.version,
-                metadata=row.metadata,
-            )
-        else:
-            return None
+        return row_to_object(
+            self.session.execute("SELECT * FROM object WHERE bucket_id = %s AND key = %s",
+                                 (bucket_id, item_name)).one())
 
     def get_version_header(self, object_id, version):
         logging.info('get version header [%s/%d]' % (object_id, version))
@@ -253,8 +237,8 @@ class ScyllaStore(object):
         self.session.execute("UPDATE version SET md5 = %s, metadata = %s WHERE object_id = %s AND version = %s",
                              (digest, json.dumps(metadata), ver.object_id, ver.version))
 
-        self.session.execute("UPDATE object SET version = %s WHERE bucket_id = %s AND key = %s",
-                             (ver.version, obj.bucket_id, obj.key))
+        self.session.execute("UPDATE object SET version = %s, metadata = %s WHERE bucket_id = %s AND key = %s",
+                             (ver.version, json.dumps(version_to_metadata(ver)), obj.bucket_id, obj.key))
 
         return S3Item(f'{bucket.name}/{item_name}', **metadata)
 
@@ -321,6 +305,19 @@ class ScyllaStore(object):
             output_stream.write(data)
 
 
+def row_to_object(row):
+    if row:
+        return ObjectHeader(
+            bucket_id=row.bucket_id,
+            key=row.key,
+            object_id=row.object_id,
+            version=row.version,
+            metadata=row.metadata,
+        )
+    else:
+        return None
+
+
 def row_to_version(row):
     if row:
         return VersionHeader(
@@ -338,3 +335,15 @@ def row_to_version(row):
         )
     else:
         return None
+
+
+def version_to_metadata(ver):
+    return {
+        'content_type': ver.content_type,
+        'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+        'md5': ver.md5,
+        'size': ver.size,
+        'blob_id': ver.blob_id,
+        'chunk_size': ver.chunk_size,
+        'chunks_per_part': ver.chunks_per_part,
+    }
