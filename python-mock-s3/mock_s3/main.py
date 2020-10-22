@@ -192,9 +192,8 @@ class S3Handler(BaseHTTPRequestHandler):
                     headers['content-type'] = 'application/octet-stream'
 
                 size = int(headers['content-length'])
-                data = self.rfile.read(size)
 
-                item = self.server.store.store_item(bucket, item_name, headers, data)
+                item = self.server.store.store_item(bucket, item_name, headers, size, self.rfile)
                 self.send_response(200)
                 self.send_header('Etag', '"%s"' % item.md5)
             else:

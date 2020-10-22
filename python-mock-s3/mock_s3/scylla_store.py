@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+from uuid import UUID
 import hashlib
 from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
 
@@ -19,6 +20,7 @@ class ScyllaStore(object):
         self.ensure_tables()
 
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM s3.bucket WHERE name = ?")
+        self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk(blob_id, partition, ix, data) VALUES (?, ?, ?, ?)")
 
     def ensure_keyspace(self):
         self.session.execute('''
@@ -153,17 +155,44 @@ class ScyllaStore(object):
 
         return 'mock some fragment'
 
-    def store_item(self, bucket, item_name, headers, data):
-        print(f'Stub store_item {bucket.name}/{item_name}... of contents: {data}')
+    def store_item(self, bucket, item_name, headers, size, data):
+        print(f'Stub store_item {bucket.name}/{item_name}... of size: {size}')
 
-        m = hashlib.md5()
-        m.update(data)
+        # TODO: Hardcoded small chunks, blob_id just for the testing purposes
+        m = self.write_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), data, size, 5, 3)
 
         metadata = {
             'content_type': headers['content-type'],
             'creation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z'),
             'md5': m.hexdigest(),
-            'size': len(data)
+            'size': size,
         }
 
         return S3Item(f'{bucket.name}/{item_name}', **metadata)
+
+    # Chunk operations
+
+    def write_chunks(self, blob_id, stream, size, chunk_size, partition_chunks):
+        m = hashlib.md5()
+
+        # Round it up - the last chunk might be smaller
+        # than chunk_size. 
+        chunk_count = (size + chunk_size - 1) // chunk_size
+        last_chunk_number = chunk_count - 1
+
+        # TODO - double check if this calculation is correct (what if there is a single chunk? - not tested)
+        last_chunk_size = size - (chunk_count - 1) * chunk_size
+
+        for chunk_number in range(chunk_count):
+            partition = chunk_number // partition_chunks
+            ix = chunk_number % partition_chunks
+
+            bytes_to_read = chunk_size
+            if chunk_number == last_chunk_number:
+                bytes_to_read = last_chunk_size
+
+            data = stream.read(bytes_to_read)
+            m.update(data)
+            self.session.execute(self.insert_chunk_stmt, [blob_id, partition, ix, data])
+
+        return m
