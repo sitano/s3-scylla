@@ -25,6 +25,12 @@ class S3Item(object):
         self.content_type = kwargs['content_type']
         self.md5 = kwargs['md5']
         self.size = kwargs['size']
+        if 'blob_id' in kwargs:
+            self.blob_id = kwargs['blob_id']
+        if 'chunk_size' in kwargs:
+            self.chunk_size = kwargs['chunk_size']
+        if 'chunks_per_part' in kwargs:
+            self.chunks_per_part = kwargs['chunks_per_part']
         if 'creation_date' in kwargs:
             self.creation_date = kwargs['creation_date']
         if 'modified_date' in kwargs:

@@ -153,21 +153,6 @@ class ScyllaStore(object):
     # Item operations
 
     def get_item(self, bucket_name, item_name):
-        # Mock data
-        metadata = {}
-        metadata['size'] = 991017
-        metadata['md5'] = 'testing'
-        metadata['filename'] = item_name
-        metadata['content_type'] = 'testing'
-        metadata['creation_date'] = '2020-01-01T11:12:13.000Z'
-
-        item = S3Item(bucket_name + '/' + item_name, **metadata)
-
-        return item
-
-    def read_item(self, output_stream, item, start=None, length=None):
-        bucket_name, sep, item_name = item.key.strip('/').partition('/')
-
         bucket = self.get_bucket(bucket_name)
         if bucket is None:
             logging.info("missing bucket")
@@ -183,7 +168,22 @@ class ScyllaStore(object):
             logging.info("missing version")
             return None
 
-        self.read_chunks(ver.blob_id, output_stream, start, length, ver.chunk_size, ver.chunks_per_part)
+        metadata = {
+            'content_type': ver.content_type,
+            'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'md5': ver.md5,
+            'size': ver.size,
+            'blob_id': ver.blob_id,
+            'chunk_size': ver.chunk_size,
+            'chunks_per_part': ver.chunks_per_part,
+        }
+
+        item = S3Item(bucket_name + '/' + item_name, **metadata)
+
+        return item
+
+    def read_item(self, output_stream, item, start=None, length=None):
+        self.read_chunks(item.blob_id, output_stream, start, length, item.chunk_size, item.chunks_per_part)
 
     def get_object_header(self, bucket_id, item_name):
         logging.info('get object header [%s/%s]' % (bucket_id, item_name))
@@ -308,6 +308,7 @@ class ScyllaStore(object):
             ix = chunk_number % partition_chunks
 
             # TODO - handle errors!
+            print([blob_id, partition, ix])
             data = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one().data
 
             data_length = len(data)
