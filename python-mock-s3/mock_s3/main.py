@@ -219,16 +219,12 @@ class S3Handler(BaseHTTPRequestHandler):
 class S3HTTPServer(ThreadingMixIn, HTTPServer):
     file_store = None
     mock_hostname = ''
-    pull_from_aws = False
 
     def set_file_store(self, file_store):
         self.file_store = file_store
 
     def set_mock_hostname(self, mock_hostname):
         self.mock_hostname = mock_hostname
-
-    def set_pull_from_aws(self, pull_from_aws):
-        self.pull_from_aws = pull_from_aws
 
 
 def main(argv=None):
@@ -242,7 +238,6 @@ def main(argv=None):
     server = S3HTTPServer((args.hostname, args.port), S3Handler)
     server.set_file_store(FileStore(args.root))
     server.set_mock_hostname(args.hostname)
-    server.set_pull_from_aws(args.pull_from_aws)
 
     logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
 
@@ -265,9 +260,6 @@ def parse(argv=None):
     parser.add_argument('--root', dest='root', action='store',
                         default='%s/s3store' % os.environ['HOME'],
                         help='Defaults to $HOME/s3store.')
-    parser.add_argument('--pull-from-aws', dest='pull_from_aws', action='store_true',
-                        default=False,
-                        help='Pull non-existent keys from aws.')
     return parser.parse_args(argv)
 
 
