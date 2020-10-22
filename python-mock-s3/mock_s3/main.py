@@ -231,7 +231,7 @@ class S3HTTPServer(ThreadingMixIn, HTTPServer):
     file_store = None
     mock_hostname = ''
 
-    def set_file_store(self, file_store):
+    def set_store(self, file_store):
         self.file_store = file_store
 
     def set_mock_hostname(self, mock_hostname):
@@ -247,9 +247,14 @@ def main(argv=None):
     logging.root.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 
     server = S3HTTPServer((args.hostname, args.port), S3Handler)
-    # server.set_file_store(FileStore(args.root))
-    server.set_file_store(ScyllaStore())
     server.set_mock_hostname(args.hostname)
+
+    if args.file_storage:
+        logging.info('Add file storage at %s' % args.root)
+        server.set_store(FileStore(args.root))
+    else:
+        logging.info('Connect to scylla storage %s:%d' % (args.scylla_hosts, args.scylla_port))
+        server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port))
 
     logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
 
@@ -272,7 +277,25 @@ def parse(argv=None):
     parser.add_argument('--root', dest='root', action='store',
                         default='%s/s3store' % os.environ['HOME'],
                         help='Defaults to $HOME/s3store.')
-    return parser.parse_args(argv)
+    parser.add_argument('--scylla.hosts', dest='scylla_hosts', action='store',
+                        default="127.0.0.1", type=str,
+                        help='Scylla hosts 1,2,3')
+    parser.add_argument('--scylla.port', dest='scylla_port', action='store',
+                        default=9042, type=int,
+                        help='Scylla port')
+    parser.add_argument('--scylla_storage', dest='scylla_storage', action='store',
+                        default=False, type=bool,
+                        help='Use scylla storage')
+    parser.add_argument('--file_storage', dest='file_storage', action='store',
+                        default=False, type=bool,
+                        help='Use file storage')
+
+    args = parser.parse_args(argv)
+
+    if args.scylla_hosts:
+        args.scylla_hosts = args.scylla_hosts.split(",")
+
+    return args
 
 
 if __name__ == '__main__':

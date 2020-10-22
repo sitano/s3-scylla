@@ -1,14 +1,17 @@
 from datetime import datetime
 import hashlib
-from cassandra.cluster import Cluster
+from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
 
 from .models import Bucket, BucketQuery, S3Item
 
-class ScyllaStore(object):
 
-    def __init__(self):
-        self.cluster = Cluster()
-        self.session = self.cluster.connect()
+class ScyllaStore(object):
+    keyspace = 's3'
+
+    def __init__(self, hosts=_NOT_SET, port=9042):
+        self.cluster = Cluster(contact_points=hosts, port=port,
+                               load_balancing_policy=TokenAwarePolicy(DCAwareRoundRobinPolicy()))
+        self.session = self.cluster.connect(keyspace=self.keyspace)
 
     # Bucket operations
 
@@ -85,4 +88,3 @@ class ScyllaStore(object):
         }
 
         return S3Item(f'{bucket.name}/{item_name}', **metadata)
-
