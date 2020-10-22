@@ -13,7 +13,7 @@ class ScyllaStore(object):
         self.cluster = Cluster(contact_points=hosts, port=port,
                                load_balancing_policy=TokenAwarePolicy(DCAwareRoundRobinPolicy()))
 
-        self.session = self.cluster.connect(keyspace=self.keyspace)
+        self.session = self.cluster.connect()
 
         self.ensure_keyspace()
         self.ensure_tables()
@@ -27,6 +27,7 @@ class ScyllaStore(object):
                 'replication_factor': '3' 
             } AND durable_writes = TRUE;
             ''')
+        self.session.set_keyspace('s3')
 
     def ensure_tables(self):
         for cql in [
