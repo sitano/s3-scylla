@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 import hashlib
 from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
 
@@ -35,7 +36,7 @@ class ScyllaStore(object):
             CREATE TABLE IF NOT EXISTS bucket (
                 name text,
                 bucket_id UUID,
-                metadata text,
+                creation_date DATE,
                 PRIMARY KEY (name)
             );
             ''',
@@ -88,11 +89,17 @@ class ScyllaStore(object):
             return None
 
     def list_all_buckets(self):
-        # Mock data
-        return [Bucket('test', datetime.now())]
+        buckets = []
+        rows = self.session.execute('SELECT * FROM bucket')
+        for row in rows:
+            buckets += Bucket(name=row.name, creation_date=row.creation_date)
+        return buckets
 
     def create_bucket(self, bucket_name):
-        print('Stub creating bucket... ' + bucket_name)
+        if self.get_bucket(bucket_name):
+            return None
+
+        logging.debug('Creating bucket: ' + bucket_name)
 
         # TODO: Check if bucket already exists
         self.session.execute('''
