@@ -2,8 +2,9 @@ from builtins import object
 
 
 class Bucket(object):
-    def __init__(self, name, creation_date):
+    def __init__(self, name, bucket_id, creation_date):
         self.name = name
+        self.bucket_id = bucket_id
         self.creation_date = creation_date
 
 
