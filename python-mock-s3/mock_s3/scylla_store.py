@@ -172,6 +172,9 @@ class ScyllaStore(object):
 
     # Chunk operations
 
+    # aws s3api --endpoint http://localhost:8000 create-bucket --bucket my-bucket
+    # dd if=/dev/zero bs=1 count=212 of=file
+    # aws s3 --endpoint http://localhost:8000 cp file s3://my-bucket/file
     def write_chunks(self, blob_id, stream, size, chunk_size, partition_chunks):
         m = hashlib.md5()
 
