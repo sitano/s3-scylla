@@ -29,7 +29,8 @@ class ScyllaStore(object):
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM bucket WHERE name = ?")
         self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk (blob_id, partition, ix, data) VALUES "
                                                       "(?, ?, ?, ?)")
-        self.select_chunk_stmt = self.session.prepare("SELECT data FROM chunk WHERE blob_id = ? AND partition = ? AND ix = ?")
+        self.select_chunk_stmt = self.session.prepare(
+            "SELECT data FROM chunk WHERE blob_id = ? AND partition = ? AND ix = ?")
 
     def ensure_keyspace(self):
         self.session.execute('''
@@ -82,7 +83,7 @@ class ScyllaStore(object):
                 size INT,
                 metadata TEXT,
                 PRIMARY KEY (object_id, version)
-            );
+            ) WITH CLUSTERING ORDER BY (version DESC);
             ''',
             '''
             CREATE TABLE IF NOT EXISTS chunk (
@@ -165,20 +166,30 @@ class ScyllaStore(object):
         return item
 
     def read_item(self, output_stream, item, start=None, length=None):
-        # TODO: Hardcoded small chunks, blob_id just for the testing purposes
-        self.read_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), output_stream, start, length, 512, 512)
+        bucket_name, sep, item_name = item.key.strip('/').partition('/')
 
-    def get_fragment(self, item, start=None, length=None):
-        if start is None and length is None:
-            return 'mock whole file'
+        bucket = self.get_bucket(bucket_name)
+        if bucket is None:
+            logging.info("missing bucket")
+            return None
 
-        return 'mock some fragment'
+        obj = self.get_object_header(bucket.bucket_id, item_name)
+        if obj is None:
+            logging.info("missing object")
+            return None
 
-    def get_object_header(self, bucket, item_name):
-        logging.info('get object header [%s/%s]' % (bucket.bucket_id, item_name))
+        ver = self.get_version_header(obj.object_id, obj.version)
+        if ver is None:
+            logging.info("missing version")
+            return None
+
+        self.read_chunks(ver.blob_id, output_stream, start, length, ver.chunk_size, ver.chunks_per_part)
+
+    def get_object_header(self, bucket_id, item_name):
+        logging.info('get object header [%s/%s]' % (bucket_id, item_name))
 
         row = self.session.execute("SELECT * FROM object WHERE bucket_id = %s AND key = %s",
-                                   (bucket.bucket_id, item_name)).one()
+                                   (bucket_id, item_name)).one()
 
         if row:
             return ObjectHeader(
@@ -194,36 +205,20 @@ class ScyllaStore(object):
     def get_version_header(self, object_id, version):
         logging.info('get version header [%s/%d]' % (object_id, version))
 
-        row = self.session.execute("SELECT * FROM version WHERE object_id = %s AND version = %s",
-                                   (object_id, version)).one()
-
-        if row:
-            return VersionHeader(
-                object_id=row.object_id,
-                bucket_id=row.bucket_id,
-                version=row.version,
-                blob_id=row.blob_id,
-                chunk_size=row.chunk_size,
-                chunks_per_part=row.chunks_per_part,
-                content_type=row.content_type,
-                creation_date=row.creation_date,
-                md5=row.md5,
-                size=row.size,
-                metadata=row.metadata
-            )
-        else:
-            return None
+        return row_to_version(
+            self.session.execute("SELECT * FROM version WHERE object_id = %s AND version = %s",
+                                 (object_id, version)).one())
 
     def store_item(self, bucket, item_name, headers, size, data):
         logging.info(f'store_item {bucket.name}/{item_name}: {size} bytes')
 
         # load object header
-        obj = self.get_object_header(bucket, item_name)
+        obj = self.get_object_header(bucket.bucket_id, item_name)
         if obj is None:
             self.session.execute("INSERT INTO object (bucket_id, key, object_id, version, metadata) "
                                  "VALUES (%s, %s, uuid(), 1, '')",
                                  (bucket.bucket_id, item_name))
-            obj = self.get_object_header(bucket, item_name)
+            obj = self.get_object_header(bucket.bucket_id, item_name)
         logging.info(f'object_header {obj.object_id}#{obj.version}')
 
         # prepare next object version header
@@ -324,3 +319,22 @@ class ScyllaStore(object):
                 data = data[:end_chunk_length]
 
             output_stream.write(data)
+
+
+def row_to_version(row):
+    if row:
+        return VersionHeader(
+            object_id=row.object_id,
+            bucket_id=row.bucket_id,
+            version=row.version,
+            blob_id=row.blob_id,
+            chunk_size=row.chunk_size,
+            chunks_per_part=row.chunks_per_part,
+            content_type=row.content_type,
+            creation_date=row.creation_date,
+            md5=row.md5,
+            size=row.size,
+            metadata=row.metadata
+        )
+    else:
+        return None
