@@ -15,6 +15,7 @@ import sys
 
 from .actions import delete_item, delete_items, get_acl, get_item, list_buckets, ls_bucket
 from .file_store import FileStore
+from .scylla_store import ScyllaStore
 
 logging.basicConfig(level=logging.INFO)
 
@@ -236,7 +237,8 @@ def main(argv=None):
     logging.root.setLevel(level=os.environ.get('LOGLEVEL', 'INFO'))
 
     server = S3HTTPServer((args.hostname, args.port), S3Handler)
-    server.set_file_store(FileStore(args.root))
+    # server.set_file_store(FileStore(args.root))
+    server.set_file_store(ScyllaStore())
     server.set_mock_hostname(args.hostname)
 
     logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
