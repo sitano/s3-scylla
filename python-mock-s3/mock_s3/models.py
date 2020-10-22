@@ -1,4 +1,5 @@
 from builtins import object
+import uuid
 
 
 class Bucket(object):
@@ -26,7 +27,7 @@ class S3Item(object):
         self.md5 = kwargs['md5']
         self.size = kwargs['size']
         if 'blob_id' in kwargs:
-            self.blob_id = kwargs['blob_id']
+            self.blob_id = uuid.UUID(kwargs['blob_id'])
         if 'chunk_size' in kwargs:
             self.chunk_size = kwargs['chunk_size']
         if 'chunks_per_part' in kwargs:
