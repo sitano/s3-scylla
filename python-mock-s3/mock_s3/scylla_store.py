@@ -27,7 +27,7 @@ class ScyllaStore(object):
                 'replication_factor': '3' 
             } AND durable_writes = TRUE;
             ''')
-        self.session.set_keyspace('s3')
+        self.session.set_keyspace(self.keyspace)
 
     def ensure_tables(self):
         for cql in [
