@@ -33,12 +33,12 @@ class FileStore(object):
         for bucket in bucket_list:
             mtime = os.stat(os.path.join(self.root, bucket)).st_mtime
             create_date = datetime.fromtimestamp(mtime).strftime('%Y-%m-%dT%H:%M:%S.000Z')
-            buckets.append(Bucket(bucket, create_date))
+            buckets.append(Bucket(name=bucket, creation_date=create_date))
         return buckets
 
     def get_bucket(self, bucket_name):
         if bucket_name == "test":
-            return Bucket("test", datetime.now())
+            return Bucket(name="test", creation_date=datetime.now())
         for bucket in self.buckets:
             if bucket.name == bucket_name:
                 return bucket

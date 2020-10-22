@@ -18,7 +18,7 @@ class ScyllaStore(object):
         self.ensure_keyspace()
         self.ensure_tables()
 
-        self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, metadata FROM s3.bucket WHERE name = ?")
+        self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM s3.bucket WHERE name = ?")
 
     def ensure_keyspace(self):
         self.session.execute('''
@@ -83,8 +83,8 @@ class ScyllaStore(object):
         bucket_info = self.session.execute(self.select_bucket_stmt, [bucket_name]).one()
 
         if bucket_info:
-            bucket_id, metadata = bucket_info
-            return Bucket(bucket_name, bucket_id, datetime.now())
+            bucket_id, creation_date = bucket_info
+            return Bucket(bucket_name, bucket_id, creation_date)
         else:
             return None
 
@@ -92,7 +92,7 @@ class ScyllaStore(object):
         buckets = []
         rows = self.session.execute('SELECT * FROM bucket')
         for row in rows:
-            buckets += Bucket(name=row.name, creation_date=row.creation_date)
+            buckets += Bucket(name=row.name, bucket_id=row.bucket_id, creation_date=row.creation_date)
         return buckets
 
     def create_bucket(self, bucket_name):
