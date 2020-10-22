@@ -183,7 +183,17 @@ class S3Handler(BaseHTTPRequestHandler):
             if not bucket:
                 # TODO: creating bucket for now, probably should return error
                 bucket = self.server.file_store.create_bucket(bucket_name)
-            item = self.server.file_store.store_item(bucket, item_name, self)
+
+            headers = {}
+            for key in self.headers:
+                headers[key.lower()] = self.headers[key]
+            if 'content-type' not in headers:
+                headers['content-type'] = 'application/octet-stream'
+
+            size = int(headers['content-length'])
+            data = self.rfile.read(size)
+
+            item = self.server.file_store.store_item(bucket, item_name, headers, data)
             self.send_response(200)
             self.send_header('Etag', '"%s"' % item.md5)
 

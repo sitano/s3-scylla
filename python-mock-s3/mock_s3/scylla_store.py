@@ -1,4 +1,5 @@
 from datetime import datetime
+import hashlib
 from cassandra.cluster import Cluster
 
 from .models import Bucket, BucketQuery, S3Item
@@ -9,10 +10,20 @@ class ScyllaStore(object):
         self.cluster = Cluster()
         self.session = self.cluster.connect()
 
+    # Bucket operations
+
     def get_bucket(self, bucket_name):
         if bucket_name == 'test':
             return Bucket('test', datetime.now())
         return None
+
+    def list_all_buckets(self):
+        # Mock data
+        return [Bucket('test', datetime.now())]
+
+    def create_bucket(self, bucket_name):
+        print('Stub creating bucket... ' + bucket_name)
+        return self.get_bucket(bucket_name)
 
     def get_all_keys(self, bucket, **kwargs):
         # Mock data
@@ -31,6 +42,8 @@ class ScyllaStore(object):
             return BucketQuery(bucket, matches, False, **kwargs)
 
         return None
+
+    # Item operations
 
     def get_item(self, bucket_name, item_name):
         # Mock data
@@ -51,7 +64,18 @@ class ScyllaStore(object):
 
         return 'mock some fragment'
 
-    def list_all_buckets(self):
-        # Mock data
-        return [Bucket('test', datetime.now())]
+    def store_item(self, bucket, item_name, headers, data):
+        print(f'Stub store_item {bucket.name}/{item_name}... of contents: {data}')
+
+        m = hashlib.md5()
+        m.update(data)
+
+        metadata = {
+            'content_type': headers['content-type'],
+            'creation_date': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'md5': m.hexdigest(),
+            'size': len(data)
+        }
+
+        return S3Item(f'{bucket.name}/{item_name}', **metadata)
 
