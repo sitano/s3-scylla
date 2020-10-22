@@ -91,22 +91,22 @@ class ScyllaStore(object):
 
     def list_all_buckets(self):
         buckets = []
+
         rows = self.session.execute('SELECT * FROM bucket')
+
         for row in rows:
             buckets += Bucket(name=row.name, bucket_id=row.bucket_id, creation_date=row.creation_date)
+
         return buckets
 
     def create_bucket(self, bucket_name):
         if self.get_bucket(bucket_name):
             return None
 
-        logging.debug('Creating bucket: ' + bucket_name)
+        logging.debug('Creating bucket [%s]' % bucket_name)
 
-        # TODO: Check if bucket already exists
-        self.session.execute('''
-            INSERT INTO s3.bucket(name, bucket_id, metadata)
-            VALUES (%s, uuid(), %s)
-        ''', (bucket_name, ''))
+        self.session.execute("INSERT INTO bucket(name, bucket_id, creation_date) VALUES (%s, uuid(), currentDate())",
+                             (bucket_name, ))
 
         return self.get_bucket(bucket_name)
 

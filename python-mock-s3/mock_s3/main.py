@@ -174,27 +174,31 @@ class S3Handler(BaseHTTPRequestHandler):
             req_type = 'copy'
 
         if req_type == 'create_bucket':
-            self.server.store.create_bucket(bucket_name)
-            self.send_response(200)
+            if self.server.store.create_bucket(bucket_name):
+                self.send_response(200)
+            else:
+                # TODO: I am not sure about this error code:
+                #  $ aws --debug s3api create-bucket --bucket ivan --region
+                #    eu-north-1 --create-bucket-configuration LocationConstraint=eu-north-1
+                self.send_response(400)
 
         elif req_type == 'store':
             bucket = self.server.store.get_bucket(bucket_name)
-            if not bucket:
-                # TODO: creating bucket for now, probably should return error
-                bucket = self.server.store.create_bucket(bucket_name)
+            if bucket:
+                headers = {}
+                for key in self.headers:
+                    headers[key.lower()] = self.headers[key]
+                if 'content-type' not in headers:
+                    headers['content-type'] = 'application/octet-stream'
 
-            headers = {}
-            for key in self.headers:
-                headers[key.lower()] = self.headers[key]
-            if 'content-type' not in headers:
-                headers['content-type'] = 'application/octet-stream'
+                size = int(headers['content-length'])
+                data = self.rfile.read(size)
 
-            size = int(headers['content-length'])
-            data = self.rfile.read(size)
-
-            item = self.server.store.store_item(bucket, item_name, headers, data)
-            self.send_response(200)
-            self.send_header('Etag', '"%s"' % item.md5)
+                item = self.server.store.store_item(bucket, item_name, headers, data)
+                self.send_response(200)
+                self.send_header('Etag', '"%s"' % item.md5)
+            else:
+                self.send_response(404, '')
 
         elif req_type == 'copy':
             self.server.store.copy_item(src_bucket, src_key, bucket_name, item_name, self)
