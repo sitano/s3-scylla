@@ -78,14 +78,15 @@ def get_item(handler, bucket_name, item_name):
         handler.send_header('Accept-Ranges', 'bytes')
         range_ = handler.headers['range'].split('=')[1]
         start = int(range_.split('-')[0])
-        finish = int(range_.split('-')[1])
+        finish_string = range_.split('-')[1]
+        finish = int(finish_string) if finish_string else 0
         if finish == 0:
             finish = content_length - 1
         bytes_to_read = finish - start + 1
         handler.send_header('Content-Range', 'bytes %s-%s/%s' % (start, finish, content_length))
         handler.send_header('Content-Length', '%s' % bytes_to_read)
         handler.end_headers()
-        handler.write(handler.server.store.get_fragment(item, start, bytes_to_read))
+        handler.server.store.read_item(handler.wfile, item, start, bytes_to_read)
         return
 
     handler.send_response(200)
@@ -96,7 +97,7 @@ def get_item(handler, bucket_name, item_name):
     handler.send_header('Content-Length', content_length)
     handler.end_headers()
     if handler.command == 'GET':
-        handler.write(handler.server.store.get_fragment(item))
+        handler.server.store.read_item(handler.wfile, item, 0, content_length)
 
 
 def delete_item(handler, bucket_name, item_name):

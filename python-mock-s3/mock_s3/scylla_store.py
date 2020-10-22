@@ -21,6 +21,7 @@ class ScyllaStore(object):
 
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM s3.bucket WHERE name = ?")
         self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk(blob_id, partition, ix, data) VALUES (?, ?, ?, ?)")
+        self.select_chunk_stmt = self.session.prepare("SELECT data FROM chunk WHERE blob_id = ? AND partition = ? AND ix = ?")
 
     def ensure_keyspace(self):
         self.session.execute('''
@@ -139,7 +140,7 @@ class ScyllaStore(object):
     def get_item(self, bucket_name, item_name):
         # Mock data
         metadata = {}
-        metadata['size'] = 15
+        metadata['size'] = 991017
         metadata['md5'] = 'testing'
         metadata['filename'] = item_name
         metadata['content_type'] = 'testing'
@@ -148,6 +149,10 @@ class ScyllaStore(object):
         item = S3Item(bucket_name + '/' + item_name, **metadata)
 
         return item
+
+    def read_item(self, output_stream, item, start=None, length=None):
+        # TODO: Hardcoded small chunks, blob_id just for the testing purposes
+        self.read_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), output_stream, start, length, 512, 512)
 
     def get_fragment(self, item, start=None, length=None):
         if start is None and length is None:
@@ -159,7 +164,7 @@ class ScyllaStore(object):
         print(f'Stub store_item {bucket.name}/{item_name}... of size: {size}')
 
         # TODO: Hardcoded small chunks, blob_id just for the testing purposes
-        m = self.write_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), data, size, 5, 3)
+        m = self.write_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), data, size, 512, 512)
 
         metadata = {
             'content_type': headers['content-type'],
@@ -199,3 +204,35 @@ class ScyllaStore(object):
             self.session.execute(self.insert_chunk_stmt, [blob_id, partition, ix, data])
 
         return m
+
+    def read_chunks(self, blob_id, output_stream, start_byte, length, chunk_size, partition_chunks):
+        end_byte = start_byte + length - 1
+
+        start_chunk = start_byte // chunk_size
+        end_chunk = end_byte // chunk_size
+
+        # start_byte or end_byte can be non-multiples of chunk_size.
+        # In such a case, we have to skip some bytes at the start
+        # of the start chunk and at the end of the end chunk.
+
+        # TODO - double check this calculations (for off-by-one errors etc)!
+        start_chunk_offset = start_byte - start_chunk * chunk_size
+        end_chunk_length = end_byte - (end_chunk - 1) * chunk_size + 1
+
+        # TODO - do not read chunk by chunk, instead partition by partition!
+        for chunk_number in range(start_chunk, end_chunk + 1):
+            partition = chunk_number // partition_chunks
+            ix = chunk_number % partition_chunks
+
+            # TODO - handle errors!
+            data = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one().data
+
+            data_length = len(data)
+
+            if chunk_number == start_chunk:
+                data = data[start_chunk_offset:]
+
+            if chunk_number == end_chunk:
+                data = data[:end_chunk_length]
+
+            output_stream.write(data)
