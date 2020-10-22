@@ -270,7 +270,7 @@ future<> server::verify_signature(const request& req) {
 #endif
 
 future<request_return_type> server::handle_request(std::unique_ptr<request>&& req) {
-    slogger.trace("Got request: method='{}' url='{}' parameters='{}' headers='{}' content='{}'", req->_method, req->_url, req->query_parameters, req->content, req->_headers);
+    slogger.trace("Got request: method='{}' url='{}' parameters='{}' headers='{}' content='{}'", req->_method, req->_url, req->query_parameters, req->_headers, req->content);
 
     return verify_signature(*req).then([this, req = std::move(req)] () mutable {
         // CONTINUE HERE!
