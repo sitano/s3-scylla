@@ -269,9 +269,9 @@ future<> server::verify_signature(const request& req) {
 }
 #endif
 
-future<request_return_type> server::handle_get_request(std::unique_ptr<request>&& req) {
-    //sstring target = req->get_header(TARGET);
-    slogger.trace("Request: {} {}", req->content, req->_headers);
+future<request_return_type> server::handle_request(std::unique_ptr<request>&& req) {
+    slogger.trace("Got request: method='{}' url='{}' parameters='{}' headers='{}' content='{}'", req->_method, req->_url, req->query_parameters, req->content, req->_headers);
+
     return verify_signature(*req).then([this, req = std::move(req)] () mutable {
         // CONTINUE HERE!
         return with_gate(_pending_requests, [this, req = std::move(req)] () mutable {
@@ -297,9 +297,10 @@ future<request_return_type> server::handle_get_request(std::unique_ptr<request>&
 
 void server::set_routes(routes& r) {
     match_rule *get_rule = new match_rule(new api_handler([this] (std::unique_ptr<request> req) mutable {
-        return handle_get_request(std::move(req));
+        return handle_request(std::move(req));
     }));
     r.add(get_rule, operation_type::GET);
+    r.add(get_rule, operation_type::PUT);
 }
 
 future<> server::init(net::inet_address addr, std::optional<uint16_t> port, std::optional<uint16_t> https_port, std::optional<tls::credentials_builder> creds,

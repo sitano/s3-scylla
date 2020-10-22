@@ -83,7 +83,7 @@ public:
 private:
     void set_routes(seastar::httpd::routes& r);
     future<> verify_signature(const seastar::httpd::request& r);
-    future<request_return_type> handle_get_request(std::unique_ptr<request>&& req);
+    future<request_return_type> handle_request(std::unique_ptr<request>&& req);
 };
 
 }
