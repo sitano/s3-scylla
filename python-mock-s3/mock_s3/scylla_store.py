@@ -10,8 +10,8 @@ from .models import Bucket, BucketQuery, S3Item, ObjectHeader, VersionHeader
 class ScyllaStore(object):
     keyspace = 's3'
 
-    chunk_size = 512  # bytes
-    chunks_per_partition = 512
+    chunk_size = 1024  # bytes
+    chunks_per_partition = 1024 * 10
 
     def __init__(self, hosts=_NOT_SET, port=9042):
         self.cluster = Cluster(contact_points=hosts, port=port,

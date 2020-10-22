@@ -21,6 +21,14 @@ logging.basicConfig(level=logging.INFO)
 
 class S3Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        try:
+            self.do_GET_wrapped()
+        except ConnectionResetError:
+            logging.warning("connection reset")
+        except BrokenPipeError:
+            logging.warning("broken pipe")
+
+    def do_GET_wrapped(self):
         parsed_path = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
@@ -52,8 +60,6 @@ class S3Handler(BaseHTTPRequestHandler):
                     req_type = 'get_acl'
                 else:
                     req_type = 'get'
-
-        print(req_type)
 
         if req_type == 'list_buckets':
             list_buckets(self)
