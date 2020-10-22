@@ -10,7 +10,7 @@ def list_buckets(handler):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
     handler.end_headers()
-    buckets = handler.server.file_store.list_all_buckets()
+    buckets = handler.server.store.list_all_buckets()
     xml = ''
     for bucket in buckets:
         xml += xml_templates.buckets_bucket_xml.format(bucket=bucket)
@@ -19,7 +19,7 @@ def list_buckets(handler):
 
 
 def ls_bucket(handler, bucket_name, qs):
-    bucket = handler.server.file_store.get_bucket(bucket_name)
+    bucket = handler.server.store.get_bucket(bucket_name)
     if bucket:
         kwargs = {
             'marker': qs.get('marker', [''])[0],
@@ -27,7 +27,7 @@ def ls_bucket(handler, bucket_name, qs):
             'max_keys': qs.get('max-keys', [1000])[0],
             'delimiter': qs.get('delimiter', [''])[0],
         }
-        bucket_query = handler.server.file_store.get_all_keys(bucket, **kwargs)
+        bucket_query = handler.server.store.get_all_keys(bucket, **kwargs)
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/xml')
         handler.end_headers()
@@ -52,7 +52,7 @@ def get_acl(handler):
 
 
 def get_item(handler, bucket_name, item_name):
-    item = handler.server.file_store.get_item(bucket_name, item_name)
+    item = handler.server.store.get_item(bucket_name, item_name)
     if not item:
         handler.send_response(404, '')
         return
@@ -85,7 +85,7 @@ def get_item(handler, bucket_name, item_name):
         handler.send_header('Content-Range', 'bytes %s-%s/%s' % (start, finish, content_length))
         handler.send_header('Content-Length', '%s' % bytes_to_read)
         handler.end_headers()
-        handler.write(handler.server.file_store.get_fragment(item, start, bytes_to_read))
+        handler.write(handler.server.store.get_fragment(item, start, bytes_to_read))
         return
 
     handler.send_response(200)
@@ -96,11 +96,11 @@ def get_item(handler, bucket_name, item_name):
     handler.send_header('Content-Length', content_length)
     handler.end_headers()
     if handler.command == 'GET':
-        handler.write(handler.server.file_store.get_fragment(item))
+        handler.write(handler.server.store.get_fragment(item))
 
 
 def delete_item(handler, bucket_name, item_name):
-    handler.server.file_store.delete_item(bucket_name, item_name)
+    handler.server.store.delete_item(bucket_name, item_name)
 
 
 def delete_items(handler, bucket_name, keys):

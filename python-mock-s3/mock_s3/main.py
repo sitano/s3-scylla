@@ -228,11 +228,11 @@ class S3Handler(BaseHTTPRequestHandler):
 
 
 class S3HTTPServer(ThreadingMixIn, HTTPServer):
-    file_store = None
+    store = None
     mock_hostname = ''
 
     def set_store(self, file_store):
-        self.file_store = file_store
+        self.store = file_store
 
     def set_mock_hostname(self, mock_hostname):
         self.mock_hostname = mock_hostname
