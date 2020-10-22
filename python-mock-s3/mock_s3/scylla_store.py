@@ -23,6 +23,13 @@ class ScyllaStore(object):
 
     def create_bucket(self, bucket_name):
         print('Stub creating bucket... ' + bucket_name)
+
+        # TODO: Check if bucket already exists
+        self.session.execute('''
+            INSERT INTO s3.bucket(name, bucket_id, metadata)
+            VALUES (%s, uuid(), %s)
+        ''', (bucket_name, ''))
+
         return self.get_bucket(bucket_name)
 
     def get_all_keys(self, bucket, **kwargs):
