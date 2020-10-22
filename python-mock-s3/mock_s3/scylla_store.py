@@ -95,10 +95,12 @@ class ScyllaStore(object):
         rows = self.session.execute('SELECT * FROM bucket')
 
         for row in rows:
-            buckets += Bucket(name=row.name, bucket_id=row.bucket_id, creation_date=row.creation_date)
+            buckets.append(Bucket(name=row.name, bucket_id=row.bucket_id, creation_date=row.creation_date))
 
         return buckets
 
+    # aws s3 --endpoint http://localhost:8000 mb s3://ivan
+    # aws --endpoint http://localhost:8000 --debug s3api create-bucket --bucket xemul --region eu-north-1
     def create_bucket(self, bucket_name):
         if self.get_bucket(bucket_name):
             return None
