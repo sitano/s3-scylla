@@ -11,7 +11,68 @@ class ScyllaStore(object):
     def __init__(self, hosts=_NOT_SET, port=9042):
         self.cluster = Cluster(contact_points=hosts, port=port,
                                load_balancing_policy=TokenAwarePolicy(DCAwareRoundRobinPolicy()))
+
         self.session = self.cluster.connect(keyspace=self.keyspace)
+
+        self.ensure_keyspace()
+        self.ensure_tables()
+
+    def ensure_keyspace(self):
+        self.session.execute('''
+            CREATE KEYSPACE IF NOT EXISTS s3 WITH replication = { 
+                'class': 'NetworkTopologyStrategy',
+                'replication_factor': '3' 
+            } AND durable_writes = TRUE;
+            ''')
+
+    def ensure_tables(self):
+        for cql in [
+            # UUID is just an option. Better suggestions?
+            # metadata: text stores metadata in JSON format
+            '''
+            CREATE TABLE IF NOT EXISTS bucket (
+                name text,
+                bucket_id UUID,
+                metadata text,
+                PRIMARY KEY (name)
+            );
+            ''',
+            # I suppose buckets may contain 1000s of objects.
+            # It would be cool to have them sorted by name.
+            # Having (bucket_id) as a partition key may make
+            # the partition heavy. I also don’t know what is
+            # the limit on the number of objects in a bucket.
+            '''
+            CREATE TABLE IF NOT EXISTS object (
+                bucket_id UUID,
+                name text,
+                object_id UUID,
+                version int,
+                metadata text,
+                PRIMARY KEY (bucket_id, name)
+            );
+            ''',
+            '''
+            CREATE TABLE IF NOT EXISTS version (
+                object_id UUID,
+                bucket_id UUID,
+                version int,
+                blob_id UUID,
+                metadata text,
+                PRIMARY KEY (object_id, version)
+            );
+            ''',
+            '''
+            CREATE TABLE IF NOT EXISTS chunk (
+                blob_id UUID,
+                partition int,
+                ix int,
+                data blob,
+                PRIMARY KEY ((blob_id, partition), ix)
+            ) WITH CLUSTERING ORDER BY (ix ASC);
+            '''
+        ]:
+            self.session.execute(cql)
 
     # Bucket operations
 
