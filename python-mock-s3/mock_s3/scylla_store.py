@@ -89,6 +89,8 @@ class ScyllaStore(object):
         else:
             return None
 
+    # aws s3 --endpoint http://localhost:8000 ls
+    # aws --endpoint http://localhost:8000 --debug s3api list-buckets
     def list_all_buckets(self):
         buckets = []
 
