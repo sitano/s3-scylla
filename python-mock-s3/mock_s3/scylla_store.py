@@ -19,8 +19,13 @@ class ScyllaStore(object):
         self.ensure_keyspace()
         self.ensure_tables()
 
-        self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM s3.bucket WHERE name = ?")
-        self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk(blob_id, partition, ix, data) VALUES (?, ?, ?, ?)")
+        self.create_bucket_stmt = self.session.prepare("INSERT INTO bucket "
+                                                       "(name, bucket_id, creation_date, metadata) VALUES "
+                                                       "(?, uuid(), currentTimestamp(), NULL)")
+        self.list_all_buckets_stmt = self.session.prepare("SELECT * FROM bucket")
+        self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM bucket WHERE name = ?")
+        self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk (blob_id, partition, ix, data) VALUES "
+                                                      "(?, ?, ?, ?)")
         self.select_chunk_stmt = self.session.prepare("SELECT data FROM chunk WHERE blob_id = ? AND partition = ? AND ix = ?")
 
     def ensure_keyspace(self):
@@ -38,9 +43,10 @@ class ScyllaStore(object):
             # metadata: text stores metadata in JSON format
             '''
             CREATE TABLE IF NOT EXISTS bucket (
-                name text,
+                name TEXT,
                 bucket_id UUID,
-                creation_date DATE,
+                creation_date TIMESTAMP,
+                metadata TEXT,
                 PRIMARY KEY (name)
             );
             ''',
@@ -52,10 +58,10 @@ class ScyllaStore(object):
             '''
             CREATE TABLE IF NOT EXISTS object (
                 bucket_id UUID,
-                name text,
+                name TEXT,
                 object_id UUID,
-                version int,
-                metadata text,
+                version INT,
+                metadata TEXT,
                 PRIMARY KEY (bucket_id, name)
             );
             ''',
@@ -63,9 +69,14 @@ class ScyllaStore(object):
             CREATE TABLE IF NOT EXISTS version (
                 object_id UUID,
                 bucket_id UUID,
-                version int,
+                version INT,
                 blob_id UUID,
-                metadata text,
+                chunk_size INT,
+                content_type TEXT,
+                creation_date TIMESTAMP,
+                md5 TEXT,
+                size INT,
+                metadata TEXT,
                 PRIMARY KEY (object_id, version)
             );
             ''',
@@ -97,7 +108,7 @@ class ScyllaStore(object):
     def list_all_buckets(self):
         buckets = []
 
-        rows = self.session.execute('SELECT * FROM bucket')
+        rows = self.session.execute(self.list_all_buckets_stmt)
 
         for row in rows:
             buckets.append(Bucket(name=row.name, bucket_id=row.bucket_id, creation_date=row.creation_date))
@@ -110,10 +121,9 @@ class ScyllaStore(object):
         if self.get_bucket(bucket_name):
             return None
 
-        logging.debug('Creating bucket [%s]' % bucket_name)
+        logging.info('Creating bucket [%s]' % bucket_name)
 
-        self.session.execute("INSERT INTO bucket(name, bucket_id, creation_date) VALUES (%s, uuid(), currentDate())",
-                             (bucket_name, ))
+        self.session.execute(self.create_bucket_stmt, [bucket_name])
 
         return self.get_bucket(bucket_name)
 
@@ -161,7 +171,7 @@ class ScyllaStore(object):
         return 'mock some fragment'
 
     def store_item(self, bucket, item_name, headers, size, data):
-        print(f'Stub store_item {bucket.name}/{item_name}... of size: {size}')
+        logging.info(f'store_item {bucket.name}/{item_name} ... of size: {size}')
 
         # TODO: Hardcoded small chunks, blob_id just for the testing purposes
         m = self.write_chunks(UUID('622b66c7-8f9e-45a2-b0e3-ccc46bdbd9f5'), data, size, 512, 512)
