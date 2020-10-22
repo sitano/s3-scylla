@@ -10,7 +10,7 @@ def list_buckets(handler):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
     handler.end_headers()
-    buckets = handler.server.file_store.buckets
+    buckets = handler.server.file_store.list_all_buckets()
     xml = ''
     for bucket in buckets:
         xml += xml_templates.buckets_bucket_xml.format(bucket=bucket)

@@ -10,8 +10,8 @@ class ScyllaStore(object):
         self.session = self.cluster.connect()
 
     def get_bucket(self, bucket_name):
-        if bucket_name == "test":
-            return Bucket("test", datetime.now())
+        if bucket_name == 'test':
+            return Bucket('test', datetime.now())
         return None
 
     def get_all_keys(self, bucket, **kwargs):
@@ -24,8 +24,8 @@ class ScyllaStore(object):
             metadata['content_type'] = 'testing'
             metadata['creation_date'] = datetime.now()
 
-            example_query = self.session.execute("SELECT cql_version FROM system.local").one()
-            example_s3_item = "scylla_cql_" + str(example_query[0])
+            example_query = self.session.execute('SELECT cql_version FROM system.local').one()
+            example_s3_item = 'scylla_cql_' + str(example_query[0])
 
             matches.append(S3Item(example_s3_item, **metadata))
             return BucketQuery(bucket, matches, False, **kwargs)
@@ -50,4 +50,8 @@ class ScyllaStore(object):
             return 'mock whole file'
 
         return 'mock some fragment'
+
+    def list_all_buckets(self):
+        # Mock data
+        return [Bucket('test', datetime.now())]
 
