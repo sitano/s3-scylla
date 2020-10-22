@@ -8,7 +8,7 @@ VERSION = '0.1'
 from setuptools import setup, find_packages
 
 try:
-    long_description = open('README.rst', 'rt').read()
+    long_description = open('README.md.rst', 'rt').read()
 except IOError:
     long_description = ''
 

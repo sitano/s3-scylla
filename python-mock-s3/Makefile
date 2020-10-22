@@ -3,3 +3,6 @@ start:
 
 deps:
 	pip install -r requirements.txt
+
+db:
+	docker run -it scylladb/scylla --smp 1
