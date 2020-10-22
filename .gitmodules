@@ -1,23 +1,23 @@
 [submodule "seastar"]
 	path = seastar
-	url = ../seastar
+	url = git@github.com:scylladb/seastar.git
 	ignore = dirty
 [submodule "swagger-ui"]
 	path = swagger-ui
-	url = ../scylla-swagger-ui
+	url = git@github.com:scylladb/scylla-swagger-ui.git
 	ignore = dirty
 [submodule "libdeflate"]
 	path = libdeflate
-	url = ../libdeflate
+	url = git@github.com:scylladb/libdeflate.git
 [submodule "abseil"]
 	path = abseil
-	url = ../abseil-cpp
+	url = git@github.com:scylladb/abseil-cpp.git
 [submodule "scylla-jmx"]
 	path = tools/jmx
-	url = ../scylla-jmx
+	url = git@github.com:scylladb/scylla-jmx.git
 [submodule "scylla-tools"]
 	path = tools/java
-	url = ../scylla-tools-java
+	url = git@github.com:scylladb/scylla-tools-java.git
 [submodule "scylla-python3"]
 	path = tools/python3
-	url = ../scylla-python3
+	url = git@github.com:scylladb/scylla-python3.git
