@@ -308,7 +308,6 @@ class ScyllaStore(object):
             ix = chunk_number % partition_chunks
 
             # TODO - handle errors!
-            print([blob_id, partition, ix])
             data = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one().data
 
             data_length = len(data)
