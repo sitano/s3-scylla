@@ -26,7 +26,7 @@ class ScyllaStore(object):
                                                        "(name, bucket_id, creation_date, metadata) VALUES "
                                                        "(?, uuid(), currentTimestamp(), NULL)")
         self.list_all_buckets_stmt = self.session.prepare("SELECT * FROM bucket")
-        self.list_all_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ? ALLOW FILTERING")
+        self.list_all_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ?")
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM bucket WHERE name = ?")
         self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk (blob_id, partition, ix, data) VALUES "
                                                       "(?, ?, ?, ?)")
