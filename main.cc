@@ -1345,7 +1345,7 @@ int main(int ac, char** av) {
                         auto& ss = service::get_local_storage_service();
                         return server.init(addr, s3_port, s3_https_port, creds, s3_enforce_authorization, &ss.service_memory_limiter());
                     }).then([addr, s3_port, s3_https_port] {
-                        startlog.info("Alternator server listening on {}, HTTP port {}, HTTPS port {}",
+                        startlog.info("S3 server listening on {}, HTTP port {}, HTTPS port {}",
                                 addr, s3_port ? std::to_string(*s3_port) : "OFF", s3_https_port ? std::to_string(*s3_https_port) : "OFF");
                     });
                 }).get();
