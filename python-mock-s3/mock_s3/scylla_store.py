@@ -17,6 +17,8 @@ class ScyllaStore(object):
         self.ensure_keyspace()
         self.ensure_tables()
 
+        self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, metadata FROM s3.bucket WHERE name = ?")
+
     def ensure_keyspace(self):
         self.session.execute('''
             CREATE KEYSPACE IF NOT EXISTS s3 WITH replication = { 
@@ -77,9 +79,13 @@ class ScyllaStore(object):
     # Bucket operations
 
     def get_bucket(self, bucket_name):
-        if bucket_name == 'test':
-            return Bucket('test', datetime.now())
-        return None
+        bucket_info = self.session.execute(self.select_bucket_stmt, [bucket_name]).one()
+
+        if bucket_info:
+            bucket_id, metadata = bucket_info
+            return Bucket(bucket_name, bucket_id, datetime.now())
+        else:
+            return None
 
     def list_all_buckets(self):
         # Mock data

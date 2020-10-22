@@ -14,7 +14,6 @@ from socketserver import ThreadingMixIn
 import sys
 
 from .actions import delete_item, delete_items, get_acl, get_item, list_buckets, ls_bucket
-from .file_store import FileStore
 from .scylla_store import ScyllaStore
 
 logging.basicConfig(level=logging.INFO)
@@ -175,14 +174,14 @@ class S3Handler(BaseHTTPRequestHandler):
             req_type = 'copy'
 
         if req_type == 'create_bucket':
-            self.server.file_store.create_bucket(bucket_name)
+            self.server.store.create_bucket(bucket_name)
             self.send_response(200)
 
         elif req_type == 'store':
-            bucket = self.server.file_store.get_bucket(bucket_name)
+            bucket = self.server.store.get_bucket(bucket_name)
             if not bucket:
                 # TODO: creating bucket for now, probably should return error
-                bucket = self.server.file_store.create_bucket(bucket_name)
+                bucket = self.server.store.create_bucket(bucket_name)
 
             headers = {}
             for key in self.headers:
@@ -193,12 +192,12 @@ class S3Handler(BaseHTTPRequestHandler):
             size = int(headers['content-length'])
             data = self.rfile.read(size)
 
-            item = self.server.file_store.store_item(bucket, item_name, headers, data)
+            item = self.server.store.store_item(bucket, item_name, headers, data)
             self.send_response(200)
             self.send_header('Etag', '"%s"' % item.md5)
 
         elif req_type == 'copy':
-            self.server.file_store.copy_item(src_bucket, src_key, bucket_name, item_name, self)
+            self.server.store.copy_item(src_bucket, src_key, bucket_name, item_name, self)
             # TODO: should be some xml here
             self.send_response(200)
 
@@ -231,8 +230,8 @@ class S3HTTPServer(ThreadingMixIn, HTTPServer):
     store = None
     mock_hostname = ''
 
-    def set_store(self, file_store):
-        self.store = file_store
+    def set_store(self, store):
+        self.store = store
 
     def set_mock_hostname(self, mock_hostname):
         self.mock_hostname = mock_hostname
