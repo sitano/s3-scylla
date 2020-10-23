@@ -33,12 +33,14 @@ class S3Item(object):
         self.content_type = kwargs['content_type']
         self.md5 = kwargs['md5']
         self.size = kwargs['size']
-        if 'blob_id' in kwargs:
-            self.blob_id = uuid.UUID(kwargs['blob_id'])
+        if 'object_id' in kwargs:
+            self.object_id = kwargs['object_id']
+        if 'version' in kwargs:
+            self.version = kwargs['version']
         if 'chunk_size' in kwargs:
             self.chunk_size = kwargs['chunk_size']
-        if 'chunks_per_part' in kwargs:
-            self.chunks_per_part = kwargs['chunks_per_part']
+        if 'chunks_per_partition' in kwargs:
+            self.chunks_per_partition = kwargs['chunks_per_partition']
         if 'creation_date' in kwargs:
             self.creation_date = kwargs['creation_date']
         if 'modified_date' in kwargs:
@@ -55,16 +57,24 @@ class ObjectHeader(object):
 
 
 class VersionHeader(object):
-    def __init__(self, object_id, bucket_id, version, blob_id, chunk_size, chunks_per_part,
+    def __init__(self, object_id, bucket_id, version, chunk_size, chunks_per_partition,
                  content_type, creation_date, md5, size, metadata):
         self.object_id = object_id
         self.bucket_id = bucket_id
         self.version = version
-        self.blob_id = blob_id
         self.chunk_size = chunk_size
-        self.chunks_per_part = chunks_per_part
+        self.chunks_per_partition = chunks_per_partition
         self.content_type = content_type
         self.creation_date = creation_date
         self.md5 = md5
         self.size = size
         self.metadata = metadata
+
+class PartHeader(object):
+    def __init__(self, object_id, version, part, blob_id, md5, size):
+        self.object_id = object_id
+        self.version = version
+        self.part = part
+        self.blob_id = blob_id
+        self.md5 = md5
+        self.size = size

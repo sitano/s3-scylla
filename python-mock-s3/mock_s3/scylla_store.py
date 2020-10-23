@@ -4,7 +4,7 @@ import json
 import hashlib
 from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
 
-from .models import Bucket, BucketQuery, S3Item, ObjectHeader, VersionHeader
+from .models import *
 
 
 class ScyllaStore(object):
@@ -77,9 +77,8 @@ class ScyllaStore(object):
                 object_id UUID,
                 bucket_id UUID,
                 version INT,
-                blob_id UUID,
                 chunk_size INT,
-                chunks_per_part INT,
+                chunks_per_partition INT,
                 content_type TEXT,
                 creation_date TIMESTAMP,
                 md5 TEXT,
@@ -89,6 +88,17 @@ class ScyllaStore(object):
             ) WITH CLUSTERING ORDER BY (version DESC);
             ''',
             '''
+             CREATE TABLE IF NOT EXISTS part (
+                object_id UUID,
+                version INT,
+                part INT,
+                blob_id UUID,
+                md5 TEXT,
+                size INT,
+                PRIMARY KEY (object_id, version, part)
+            ) WITH CLUSTERING ORDER BY (version DESC, part ASC);
+            ''',
+            '''
             CREATE TABLE IF NOT EXISTS chunk (
                 blob_id UUID,
                 partition INT,
@@ -96,6 +106,13 @@ class ScyllaStore(object):
                 data BLOB,
                 PRIMARY KEY ((blob_id, partition), ix)
             ) WITH CLUSTERING ORDER BY (ix ASC);
+            ''',
+            '''
+            CREATE TABLE IF NOT EXISTS multipart_upload (
+                upload_id UUID,
+                object_id UUID,
+                PRIMARY KEY (object_id, upload_id)
+            );
             '''
         ]:
             self.session.execute(cql)
@@ -187,7 +204,8 @@ class ScyllaStore(object):
             return None
 
         item = S3Item(bucket, key=item_name, **metadata)
-
+        # item.chunks_per_part = obj.chunks_per_part
+        # item.
         return item
 
     def get_item_metadata(self, obj):
@@ -200,10 +218,11 @@ class ScyllaStore(object):
         else:
             metadata = json.loads(obj.metadata)
         metadata['version'] = obj.version
+        metadata['object_id'] = obj.object_id
         return metadata
 
     def read_item(self, output_stream, item, start=None, length=None):
-        self.read_chunks(item.blob_id, output_stream, start, length, item.chunk_size, item.chunks_per_part)
+        self.read_parts(output_stream, item, start, length)
 
     def get_object_header(self, bucket_id, item_name):
         logging.info('get object header [%s/%s]' % (bucket_id, item_name))
@@ -218,6 +237,13 @@ class ScyllaStore(object):
         return row_to_version(
             self.session.execute("SELECT * FROM version WHERE object_id = %s AND version = %s",
                                  (object_id, version)).one())
+
+    def get_part_header(self, object_id, version, part):
+        logging.info('get part header [%s/%d/%d]' % (object_id, version, part))
+
+        return row_to_part(
+            self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s AND part = %s",
+                                 (object_id, version, part)).one())
 
     def store_item(self, bucket, item_name, headers, size, data):
         logging.info(f'store_item {bucket.name}/{item_name}: {size} bytes')
@@ -239,18 +265,18 @@ class ScyllaStore(object):
             # TODO: ensure version does not exist
 
         content_type = headers['content-type']
-        self.session.execute("INSERT INTO version (object_id, bucket_id, version, blob_id, "
-                             "chunk_size, chunks_per_part, content_type, creation_date, md5, size, metadata) "
-                             "VALUES (%s, %s, %s, uuid(),"
+        self.session.execute("INSERT INTO version (object_id, bucket_id, version, "
+                             "chunk_size, chunks_per_partition, content_type, creation_date, md5, size, metadata) "
+                             "VALUES (%s, %s, %s,"
                              "%s, %s, %s, currentTimestamp(), '', %s, '')",
-                             (obj.object_id, obj.bucket_id, version,  # uuid()
+                             (obj.object_id, obj.bucket_id, version,
                               self.chunk_size, self.chunks_per_partition, content_type, size))
 
         ver = self.get_version_header(obj.object_id, version)
         logging.info(f'version_header {ver.object_id}#{ver.version}')
 
-        # write chunks
-        digest = self.write_chunks(ver.blob_id, data, size, self.chunk_size, self.chunks_per_partition)
+        # write data in one part
+        digest = self.write_part(ver, 1, data, size)
 
         # update metadata+md5
         ver.md5 = digest
@@ -270,7 +296,20 @@ class ScyllaStore(object):
 
         return S3Item(bucket, item_name, **metadata)
 
-    # Chunk operations
+    # Chunk/parts operations
+
+    def write_part(self, version, part, data, size):
+        m = hashlib.md5()
+        self.session.execute("INSERT INTO part (object_id, version, part, blob_id, size)"
+                             "VALUES (%s, %s, %s, uuid(), %s)",
+                             (version.object_id, version.version, part, size))
+
+        part_header = self.get_part_header(version.object_id, version.version, part)
+
+        digest = self.write_chunks(part_header.blob_id, data, size, version.chunk_size, version.chunks_per_partition)
+
+        self.session.execute("UPDATE part SET md5 = %s WHERE object_id = %s AND version = %s AND part = %s",
+                             (digest, version.object_id, version.version, part))
 
     # aws s3api --endpoint http://localhost:8000 create-bucket --bucket my-bucket
     # dd if=/dev/zero bs=1 count=212 of=file
@@ -300,7 +339,31 @@ class ScyllaStore(object):
 
         return m.hexdigest()
 
-    def read_chunks(self, blob_id, output_stream, start_byte, length, chunk_size, partition_chunks):
+    def read_parts(self, output_stream, item, start, length):
+        parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
+                             (item.object_id, item.version)).all()
+        #FIXME: should be returned sorted but order by doesn't work
+        def partNum(item):
+            return item.part
+        parts.sort(key=partNum)
+
+        current_start = 0 # absolute position in object
+        for part in parts:
+            if length <= 0:
+                return
+            part_start = 0 # position in part blob
+            if start > current_start:
+                part_start = start - current_start
+            if part_start >= item.chunk_size:
+                current_start += part.size
+                continue # skipping this part
+
+            self.read_chunks(output_stream, part.blob_id, part_start, min(part.size, length), item.chunk_size, item.chunks_per_partition)
+            current_start += part.size
+            length -= part.size
+        #TODO: if at this point length > 0 then something went wrong (requested more data than we have)
+
+    def read_chunks(self, output_stream, blob_id, start_byte, length, chunk_size, partition_chunks):
         end_byte = start_byte + length - 1
 
         start_chunk = start_byte // chunk_size
@@ -350,9 +413,8 @@ def row_to_version(row):
             object_id=row.object_id,
             bucket_id=row.bucket_id,
             version=row.version,
-            blob_id=row.blob_id,
             chunk_size=row.chunk_size,
-            chunks_per_part=row.chunks_per_part,
+            chunks_per_partition=row.chunks_per_partition,
             content_type=row.content_type,
             creation_date=row.creation_date,
             md5=row.md5,
@@ -362,6 +424,18 @@ def row_to_version(row):
     else:
         return None
 
+def row_to_part(row):
+    if row:
+        return PartHeader(
+            object_id=row.object_id,
+            version=row.version,
+            part=row.part,
+            blob_id=row.blob_id,
+            md5=row.md5,
+            size=row.size,
+        )
+    else:
+        return None
 
 def version_to_metadata(ver):
     return {
@@ -369,9 +443,8 @@ def version_to_metadata(ver):
         'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
         'md5': ver.md5,
         'size': ver.size,
-        'blob_id': str(ver.blob_id),
         'chunk_size': ver.chunk_size,
-        'chunks_per_part': ver.chunks_per_part,
+        'chunks_per_partition': ver.chunks_per_partition,
     }
 
 
