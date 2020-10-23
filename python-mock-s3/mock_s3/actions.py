@@ -1,8 +1,6 @@
 import datetime
-import urllib.error
-import urllib.parse
-import urllib.request
-
+import time
+import json
 from . import xml_templates
 
 
@@ -32,8 +30,10 @@ def ls_bucket(handler, bucket_name, qs):
 
         contents = ''
         prefixes = ''
-        for s3_item in bucket_query.matches:
-            contents += xml_templates.bucket_query_content_xml.format(s3_item=s3_item) + "\n"
+        for item in bucket_query.matches:
+            if item.content_type == 'application/x-directory':
+                item.key += '/'
+            contents += xml_templates.bucket_query_content_xml.format(s3_item=item) + "\n"
         for prefix in bucket_query.prefixes:
             prefixes += xml_templates.bucket_query_prefixes_xml.format(prefix=prefix) + "\n"
         xml = xml_templates.bucket_query_xml.format(bucket_query=bucket_query, contents=contents, prefixes=prefixes)
@@ -73,12 +73,12 @@ def get_item(handler, bucket_name, item_name):
     else:
         last_modified = item.modified_date
     last_modified = datetime.datetime.strptime(last_modified, '%Y-%m-%dT%H:%M:%S.000Z')
-    last_modified = last_modified.strftime('%a, %d %b %Y %H:%M:%S GMT')
+    last_modified_str = last_modified.strftime('%a, %d %b %Y %H:%M:%S GMT')
 
     if 'range' in headers:
         handler.send_response(206)
         handler.send_header('Content-Type', item.content_type)
-        handler.send_header('Last-Modified', last_modified)
+        handler.send_header('Last-Modified', last_modified_str)
         handler.send_header('Etag', item.md5)
         handler.send_header('Accept-Ranges', 'bytes')
         range_ = handler.headers['range'].split('=')[1]
@@ -95,14 +95,37 @@ def get_item(handler, bucket_name, item_name):
         return
 
     handler.send_response(200)
-    handler.send_header('Last-Modified', last_modified)
+    handler.send_header('Last-Modified', last_modified_str)
     handler.send_header('Etag', item.md5)
     handler.send_header('Accept-Ranges', 'bytes')
     handler.send_header('Content-Type', item.content_type)
     handler.send_header('Content-Length', content_length)
+    if item.content_type == 'application/x-directory':
+        handler.send_header('x-amz-meta-ctime', str(int(time.mktime(last_modified.timetuple()))))
+        handler.send_header('x-amz-meta-mode', 493)
+        handler.send_header('x-amz-meta-gid', 1001)
+        handler.send_header('x-amz-meta-uid', 1000)
+        handler.send_header('x-amz-meta-mtime', str(int(time.mktime(last_modified.timetuple()))))
     handler.end_headers()
     if handler.command == 'GET':
         handler.server.store.read_item(handler.wfile, item, 0, content_length)
+    if handler.command == 'HEAD':
+        if item.content_type == 'application/x-directory':
+            handler.write(json.dumps({
+                "AcceptRanges": "bytes",
+                "LastModified": last_modified_str,
+                "ContentLength": 0,
+                "ETag": item.md5,
+                "ContentType": "application/x-directory",
+                "Metadata": {
+                    "ctime": str(int(time.mktime(last_modified.timetuple()))),
+                    "mode": "493",
+                    "gid": "1001",
+                    "uid": "1000",
+                    "mtime": str(int(time.mktime(last_modified.timetuple())))
+                }
+            }
+            ))
 
 
 def delete_item(handler, bucket_name, item_name):
