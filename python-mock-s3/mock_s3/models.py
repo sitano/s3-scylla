@@ -10,14 +10,20 @@ class Bucket(object):
 
 
 class BucketQuery(object):
-    def __init__(self, bucket, matches=[], is_truncated=False, **kwargs):
+    def __init__(self, bucket, matches=None, prefixes=None, is_truncated=False,
+                 marker='', prefix='', max_keys=1000, delimiter=''):
+        if matches is None:
+            matches = []
+        if prefixes is None:
+            prefixes = []
         self.bucket = bucket
         self.matches = matches
+        self.prefixes = prefixes
         self.is_truncated = is_truncated
-        self.marker = kwargs['marker']
-        self.prefix = kwargs['prefix']
-        self.max_keys = kwargs['max_keys']
-        self.delimiter = kwargs['delimiter']
+        self.marker = marker
+        self.prefix = prefix
+        self.max_keys = max_keys
+        self.delimiter = delimiter
 
 
 class S3Item(object):

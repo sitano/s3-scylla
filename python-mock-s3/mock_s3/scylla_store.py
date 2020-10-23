@@ -26,7 +26,9 @@ class ScyllaStore(object):
                                                        "(name, bucket_id, creation_date, metadata) VALUES "
                                                        "(?, uuid(), currentTimestamp(), NULL)")
         self.list_all_buckets_stmt = self.session.prepare("SELECT * FROM bucket")
-        self.list_all_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ?")
+        self.list_all_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ? LIMIT ?")
+        self.list_prefix_keys_stmt = self.session.prepare("SELECT * FROM object WHERE bucket_id = ? "
+                                                          "AND key LIKE ? LIMIT ?")
         self.select_bucket_stmt = self.session.prepare("SELECT bucket_id, creation_date FROM bucket WHERE name = ?")
         self.insert_chunk_stmt = self.session.prepare("INSERT INTO chunk (blob_id, partition, ix, data) VALUES "
                                                       "(?, ?, ?, ?)")
@@ -135,21 +137,36 @@ class ScyllaStore(object):
 
     # aws s3 --endpoint http://localhost:8000 ls s3://ivan
     # aws --endpoint http://localhost:8000 --debug s3api list-objects --bucket ivan
-    def get_all_keys(self, bucket, **kwargs):
+    def get_all_keys(self, bucket, marker='', prefix='', max_keys=1000, delimiter=''):
         matches = []
+        prefixes = []
 
-        rows = self.session.execute(self.list_all_keys_stmt, [bucket.bucket_id])
+        if prefix:
+            rows = self.session.execute(self.list_prefix_keys_stmt, [bucket.bucket_id, f'{prefix}%', max_keys])
+        else:
+            rows = self.session.execute(self.list_all_keys_stmt, [bucket.bucket_id, max_keys])
 
-        # TODO: max keys support and other optional args: marker, prefix, max_keys, delimeter
+        # TODO: marker
         for row in rows:
             obj = row_to_object(row)
+
+            # if delimiter is set and prefix has form {path}{delimiter} like path/.
+            if delimiter and not prefix or prefix[-1] == delimiter:
+                # then filter sub paths
+                if delimiter in remove_prefix(obj.key, prefix):
+                    sub_prefix = remove_prefix(obj.key, prefix).split(delimiter)[0]
+                    if sub_prefix + delimiter not in prefixes:
+                        prefixes.append(sub_prefix + delimiter)
+                    continue
+
             metadata = self.get_item_metadata(obj)
             if obj is None:
                 logging.info("missing version")
                 return None
+
             matches.append(S3Item(bucket, obj.key, **metadata))
 
-        return BucketQuery(bucket, matches, False, **kwargs)
+        return BucketQuery(bucket, matches, prefixes, False, marker, prefix, max_keys, delimiter)
 
     # Item operations
 
@@ -236,6 +253,8 @@ class ScyllaStore(object):
         digest = self.write_chunks(ver.blob_id, data, size, self.chunk_size, self.chunks_per_partition)
 
         # update metadata+md5
+        ver.md5 = digest
+
         metadata = {
             'content_type': content_type,
             'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
@@ -303,8 +322,6 @@ class ScyllaStore(object):
             # TODO - handle errors!
             data = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one().data
 
-            data_length = len(data)
-
             if chunk_number == start_chunk:
                 data = data[start_chunk_offset:]
 
@@ -356,3 +373,7 @@ def version_to_metadata(ver):
         'chunk_size': ver.chunk_size,
         'chunks_per_part': ver.chunks_per_part,
     }
+
+
+def remove_prefix(text, prefix):
+    return text[text.startswith(prefix) and len(prefix):]

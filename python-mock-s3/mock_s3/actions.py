@@ -21,20 +21,23 @@ def list_buckets(handler):
 def ls_bucket(handler, bucket_name, qs):
     bucket = handler.server.store.get_bucket(bucket_name)
     if bucket:
-        kwargs = {
-            'marker': qs.get('marker', [''])[0],
-            'prefix': qs.get('prefix', [''])[0],
-            'max_keys': qs.get('max-keys', [1000])[0],
-            'delimiter': qs.get('delimiter', [''])[0],
-        }
-        bucket_query = handler.server.store.get_all_keys(bucket, **kwargs)
+        bucket_query = handler.server.store.get_all_keys(bucket,
+                                                         marker=qs.get('marker', [None])[0],
+                                                         prefix=qs.get('prefix', [''])[0],
+                                                         max_keys=qs.get('max-keys', [1000])[0],
+                                                         delimiter=qs.get('delimiter', [''])[0])
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/xml')
         handler.end_headers()
+
         contents = ''
+        prefixes = ''
         for s3_item in bucket_query.matches:
-            contents += xml_templates.bucket_query_content_xml.format(s3_item=s3_item)
-        xml = xml_templates.bucket_query_xml.format(bucket_query=bucket_query, contents=contents)
+            contents += xml_templates.bucket_query_content_xml.format(s3_item=s3_item) + "\n"
+        for prefix in bucket_query.prefixes:
+            prefixes += xml_templates.bucket_query_prefixes_xml.format(prefix=prefix) + "\n"
+        xml = xml_templates.bucket_query_xml.format(bucket_query=bucket_query, contents=contents, prefixes=prefixes)
+
         handler.write(xml)
     else:
         handler.send_response(404)
