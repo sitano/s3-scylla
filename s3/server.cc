@@ -28,6 +28,7 @@
 #include "cql3/query_processor.hh"
 #include "service/storage_service.hh"
 #include "utils/overloaded_functor.hh"
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 static logging::logger slogger("s3-server");
 
@@ -84,6 +85,17 @@ public:
             // streamm.... and use write_body...
             // rep->write_body("json", std::move(json_return_value._body_writer));
             rep->_content += res;
+
+            // TODO: add Last-Modified handle_request(), it should be object update datetime (this is fake datetime)
+            using namespace boost::posix_time;
+            const ptime current_time = second_clock::universal_time();
+            auto facet = std::make_unique<time_facet>();
+            facet->format("%a, %d %b %Y %H:%M:%S GMT");
+            std::stringstream stream;
+            stream.imbue(std::locale(std::locale::classic(), facet.release()));
+            stream << current_time;
+            rep->add_header("Last-Modified", stream.str());
+
              return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
          });
     }), _type("json") { }
@@ -304,6 +316,13 @@ future<request_return_type> server::handle_request(std::unique_ptr<request>&& re
                         // DeleteObject or DeleteBucket
                         slogger.trace("Handle DELETE req:{}", req->_url);
                         return std::string("");
+                    } else if (req->_method == "HEAD") {
+                        // HeadObject or HeadBucket
+                        slogger.trace("Handle HEAD req:{}", req->_url);
+                        // TODO: HeadObject requires to return Object info via header, we at least return 'Last-Modified'
+                        // of the object, otherwise 'aws s3' command will fail.
+                        // We currently return fake value in api_handler()
+                        return std::string("");
                     } else {
                         throw api_error("Bad Request", httpd::reply::status_type::bad_request);
                     }
@@ -320,6 +339,7 @@ void server::set_routes(routes& r) {
     r.add(get_rule, operation_type::GET);
     r.add(get_rule, operation_type::PUT);
     r.add(get_rule, operation_type::DELETE);
+    r.add(get_rule, operation_type::HEAD);
 }
 
 future<> server::init(net::inet_address addr, std::optional<uint16_t> port, std::optional<uint16_t> https_port, std::optional<tls::credentials_builder> creds,
