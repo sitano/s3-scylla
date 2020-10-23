@@ -22,7 +22,7 @@ def ls_bucket(handler, bucket_name, qs):
     bucket = handler.server.store.get_bucket(bucket_name)
     if bucket:
         bucket_query = handler.server.store.get_all_keys(bucket,
-                                                         marker=qs.get('marker', [None])[0],
+                                                         marker=qs.get('marker', [''])[0],
                                                          prefix=qs.get('prefix', [''])[0],
                                                          max_keys=int(qs.get('max-keys', [1000])[0]),
                                                          delimiter=qs.get('delimiter', [''])[0])
