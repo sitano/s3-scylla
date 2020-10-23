@@ -269,8 +269,44 @@ future<request_return_type> server::handle_request(std::unique_ptr<request>&& re
                     //++_executor._stats.requests_blocked_memory;
                 }
                 return units_fut.then([this, &client_state, /*trace_state,*/ req = std::move(req)] (semaphore_units<> units) mutable {
-                    throw api_error("Bad Request", httpd::reply::status_type::bad_request);
-                    return std::string("");
+                    std::vector<sstring> tok;
+                    boost::algorithm::split(tok, req->_url, boost::is_any_of(sstring("/")));
+                    sstring bucket, object;
+                    if (tok.size() < 3) {
+                        bucket = req->_url;
+                    } else {
+                        object = tok.back();
+                        bucket = boost::algorithm::join(tok, "/");
+                    }
+
+                    if (req->_method == "PUT") {
+                        // CreateBucket
+                        if (req->content.size() == 0) {
+                            slogger.trace("CreateBucket {}", req->_url);
+                        // CopyObject
+                        } else {
+                            slogger.trace("CopyObject bucket:{} object:{} size:{}", bucket, object, req->content.size());
+                        }
+                        return std::string("");
+                    } else if (req->_method == "GET") {
+                        // GetObject or ListBuckets
+                        slogger.trace("Handle GET req:{}", req->_url);
+                        // if object or bucket not exist
+                        if (false) {
+                            throw api_error("Not Found", httpd::reply::status_type::not_found);
+                        }
+                        // if access is forbidden
+                        if (false) {
+                            throw api_error("Forbidden", httpd::reply::status_type::forbidden);
+                        }
+                        return std::string("");
+                    } else if (req->_method == "DELETE") {
+                        // DeleteObject or DeleteBucket
+                        slogger.trace("Handle DELETE req:{}", req->_url);
+                        return std::string("");
+                    } else {
+                        throw api_error("Bad Request", httpd::reply::status_type::bad_request);
+                    }
                 });
             });
         });
@@ -283,6 +319,7 @@ void server::set_routes(routes& r) {
     }));
     r.add(get_rule, operation_type::GET);
     r.add(get_rule, operation_type::PUT);
+    r.add(get_rule, operation_type::DELETE);
 }
 
 future<> server::init(net::inet_address addr, std::optional<uint16_t> port, std::optional<uint16_t> https_port, std::optional<tls::credentials_builder> creds,
