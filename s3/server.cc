@@ -23,6 +23,7 @@
 #include "log.hh"
 #include <seastar/http/function_handlers.hh>
 #include "seastarx.hh"
+#include "error.hh"
 #include <cctype>
 #include "cql3/query_processor.hh"
 #include "service/storage_service.hh"
@@ -70,20 +71,11 @@ public:
                  // TODO: how does s3 return errors?
                  try {
                      resf.get();
-# if 0
                  } catch (api_error &ae) {
                      generate_error_reply(*rep, ae);
-                 } catch (rjson::error & re) {
-                     generate_error_reply(*rep,
-                             api_error::validation(re.what()));
                  } catch (...) {
                      generate_error_reply(*rep,
-                             api_error::internal(format("Internal server error: {}", std::current_exception())));
-#else
-                } catch (...) {
-                    // TODO: how to represent errors?
-                    generate_error_reply(*rep, std::current_exception());
-#endif
+                             api_error(format("Internal server error: {}", std::current_exception()), httpd::reply::status_type::internal_server_error));
                 }
                  return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
              }
@@ -107,21 +99,11 @@ public:
     }
 
 protected:
-#if 0
     void generate_error_reply(reply& rep, const api_error& err) {
-        rep._content += "{\"__type\":\"com.amazonaws.dynamodb.v20120810#" + err._type + "\"," +
-                "\"message\":\"" + err._msg + "\"}";
+        rep._content += err._msg;
         rep._status = err._http_code;
         slogger.trace("api_handler error case: {}", rep._content);
     }
-#else
-    // just a hack, should be improved
-    void generate_error_reply(reply& rep, const std::exception_ptr& ep) {
-        rep._content += format("{}", ep);
-        rep._status = httpd::reply::status_type::bad_request; // TODO
-        slogger.trace("api_handler error case: {}", rep._content);
-    }
-#endif
 
     future_handler_function _f_handle;
     sstring _type;
@@ -287,8 +269,8 @@ future<request_return_type> server::handle_request(std::unique_ptr<request>&& re
                     //++_executor._stats.requests_blocked_memory;
                 }
                 return units_fut.then([this, &client_state, /*trace_state,*/ req = std::move(req)] (semaphore_units<> units) mutable {
-                    // COTNINUE HERE - process the request.
-                    return std::string("HELLO");
+                    throw api_error("Bad Request", httpd::reply::status_type::bad_request);
+                    return std::string("");
                 });
             });
         });
