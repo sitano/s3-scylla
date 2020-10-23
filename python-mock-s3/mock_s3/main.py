@@ -61,6 +61,8 @@ class S3Handler(BaseHTTPRequestHandler):
                 else:
                     req_type = 'get'
 
+        logging.debug("request type: %s" % req_type)
+
         if req_type == 'list_buckets':
             list_buckets(self)
 
@@ -261,12 +263,8 @@ def main(argv=None):
     server = S3HTTPServer((args.hostname, args.port), S3Handler)
     server.set_mock_hostname(args.hostname)
 
-    if args.file_storage:
-        logging.info('Add file storage at %s' % args.root)
-        server.set_store(FileStore(args.root))
-    else:
-        logging.info('Connect to scylla storage %s:%d' % (args.scylla_hosts, args.scylla_port))
-        server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port))
+    logging.info('Connect to scylla storage %s:%d' % (args.scylla_hosts, args.scylla_port))
+    server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port))
 
     logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
 
@@ -295,12 +293,6 @@ def parse(argv=None):
     parser.add_argument('--scylla.port', dest='scylla_port', action='store',
                         default=9042, type=int,
                         help='Scylla port')
-    parser.add_argument('--scylla_storage', dest='scylla_storage', action='store',
-                        default=False, type=bool,
-                        help='Use scylla storage')
-    parser.add_argument('--file_storage', dest='file_storage', action='store',
-                        default=False, type=bool,
-                        help='Use file storage')
 
     args = parser.parse_args(argv)
 

@@ -142,18 +142,12 @@ class ScyllaStore(object):
 
         # TODO: max keys support and other optional args: marker, prefix, max_keys, delimeter
         for row in rows:
-            metadata = object()
             obj = row_to_object(row)
-            if obj.metadata is None or obj.metadata == '':
-                ver = self.get_version_header(obj.object_id, obj.version)
-                if ver is None:
-                    logging.info("missing version")
-                    return None
-                metadata = version_to_metadata(ver)
-            else:
-                metadata = json.loads(obj.metadata)
-            metadata['version'] = obj.version
-            matches.append(S3Item(bucket.name + '/' + obj.key, **metadata))
+            metadata = self.get_item_metadata(obj)
+            if obj is None:
+                logging.info("missing version")
+                return None
+            matches.append(S3Item(bucket, obj.key, **metadata))
 
         return BucketQuery(bucket, matches, False, **kwargs)
 
@@ -170,14 +164,26 @@ class ScyllaStore(object):
             logging.info("missing object")
             return None
 
-        ver = self.get_version_header(obj.object_id, obj.version)
-        if ver is None:
+        metadata = self.get_item_metadata(obj)
+        if obj is None:
             logging.info("missing version")
             return None
 
-        item = S3Item(bucket_name + '/' + item_name, **version_to_metadata(ver))
+        item = S3Item(bucket, key=item_name, **metadata)
 
         return item
+
+    def get_item_metadata(self, obj):
+        metadata = object()
+        if obj.metadata is None or obj.metadata == '':
+            ver = self.get_version_header(obj.object_id, obj.version)
+            if ver is None:
+                return None
+            metadata = version_to_metadata(ver)
+        else:
+            metadata = json.loads(obj.metadata)
+        metadata['version'] = obj.version
+        return metadata
 
     def read_item(self, output_stream, item, start=None, length=None):
         self.read_chunks(item.blob_id, output_stream, start, length, item.chunk_size, item.chunks_per_part)
@@ -243,7 +249,7 @@ class ScyllaStore(object):
         self.session.execute("UPDATE object SET version = %s, metadata = %s WHERE bucket_id = %s AND key = %s",
                              (ver.version, json.dumps(version_to_metadata(ver)), obj.bucket_id, obj.key))
 
-        return S3Item(f'{bucket.name}/{item_name}', **metadata)
+        return S3Item(bucket, item_name, **metadata)
 
     # Chunk operations
 

@@ -21,7 +21,8 @@ class BucketQuery(object):
 
 
 class S3Item(object):
-    def __init__(self, key, **kwargs):
+    def __init__(self, bucket, key, **kwargs):
+        self.bucket = bucket
         self.key = key
         self.content_type = kwargs['content_type']
         self.md5 = kwargs['md5']
