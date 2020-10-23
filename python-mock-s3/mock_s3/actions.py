@@ -24,7 +24,7 @@ def ls_bucket(handler, bucket_name, qs):
         bucket_query = handler.server.store.get_all_keys(bucket,
                                                          marker=qs.get('marker', [None])[0],
                                                          prefix=qs.get('prefix', [''])[0],
-                                                         max_keys=qs.get('max-keys', [1000])[0],
+                                                         max_keys=int(qs.get('max-keys', [1000])[0]),
                                                          delimiter=qs.get('delimiter', [''])[0])
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/xml')
