@@ -265,6 +265,8 @@ def main(argv=None):
 
     logging.info('Connect to scylla storage %s:%d' % (args.scylla_hosts, args.scylla_port))
     server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port))
+    server.store.chunk_size = args.chunk_size
+    server.store.chunks_per_partition = args.chunks_per_partition
 
     logging.info('Starting server at %s:%d, use <Ctrl-C> to stop' % (args.hostname, args.port))
 
@@ -293,6 +295,12 @@ def parse(argv=None):
     parser.add_argument('--scylla.port', dest='scylla_port', action='store',
                         default=9042, type=int,
                         help='Scylla port')
+    parser.add_argument('--chunk_size', dest='chunk_size', action='store',
+                        default=1024*128, type=int,
+                        help='chunk size in bytes')
+    parser.add_argument('--chunks_per_partition', dest='chunks_per_partition', action='store',
+                        default=512, type=int,
+                        help='number of chunks per partition')
 
     args = parser.parse_args(argv)
 
