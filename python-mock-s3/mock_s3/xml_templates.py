@@ -85,3 +85,5 @@ create_multipart_upload_xml = '''\
    <Key>{key}</Key>
    <UploadId>{upload_id}</UploadId>
 </InitiateMultipartUploadResult>'''
+
+non_empty_stub = '<?xml version="1.0" encoding="UTF-8"?>'

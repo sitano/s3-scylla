@@ -54,7 +54,9 @@ def get_acl(handler):
 def get_item(handler, bucket_name, item_name):
     item = handler.server.store.get_item(bucket_name, item_name)
     if not item:
-        handler.send_response(404, '')
+        handler.send_response(404)
+        handler.end_headers()
+        handler.write(xml_templates.non_empty_stub)
         return
 
     content_length = item.size
