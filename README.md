@@ -1,10 +1,17 @@
-A python3 port of Fake-S3
+A python3 proof of concept implementation of
+S3-API backed by Scylla database for storing
+large binary objects.
 
-INSTALL:
+2 prototype branches:
+
+- python (based on s3-mock)
+- scylla (based on alternator, C++)
+
+## INSTALL
 
     $ python setup.py install
 
-RUN:
+## RUN
 
     $ make start
 
@@ -20,7 +27,14 @@ AWS S3 CLI:
 
     $ aws s3 --endpoint http://localhost:8000 ls
 
-Usage example:
+## Notes
+
+By default `aws s3 cp` has a upload threshold after
+which it switches to the multi-part upload scheme.
+Until we support it, it must be disabled for allowing
+uploads of files larger than 8MB.
+
+## Usage
 
     $ LOGLEVEL=DEBUG python -m mock_s3.main
     INFO:root:Starting server at localhost:8000, use <Ctrl-C> to stop
