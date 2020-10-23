@@ -151,7 +151,7 @@ class ScyllaStore(object):
             obj = row_to_object(row)
 
             # if delimiter is set and prefix has form {path}{delimiter} like path/.
-            if delimiter and not prefix or prefix[-1] == delimiter:
+            if delimiter and (not prefix or prefix[-1] == delimiter):
                 # then filter sub paths
                 if delimiter in remove_prefix(obj.key, prefix):
                     sub_prefix = remove_prefix(obj.key, prefix).split(delimiter)[0]
