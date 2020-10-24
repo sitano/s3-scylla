@@ -790,6 +790,10 @@ table::try_flush_memtable_to_sstable(lw_shared_ptr<memtable> old, sstable_write_
         auto&& priority = service::get_local_memtable_flush_priority();
         sstables::sstable_writer_config cfg = get_sstables_manager().configure_writer();
         cfg.backup = incremental_backups_enabled();
+        
+        // TODO: segregate data here using strategy's interposer consume
+        // check how streaming/stream_session does it
+        
         auto f = write_memtable_to_sstable(*old, newtab, monitor, cfg, priority);
         // Switch back to default scheduling group for post-flush actions, to avoid them being staved by the memtable flush
         // controller. Cache update does not affect the input of the memtable cpu controller, so it can be subject to
