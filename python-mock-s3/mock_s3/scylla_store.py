@@ -347,6 +347,8 @@ class ScyllaStore(object):
             return item.part
         parts.sort(key=partNum)
 
+        logging.info("parts [%s]" % parts)
+
         current_start = 0 # absolute position in object
         for part in parts:
             if length <= 0:
@@ -354,9 +356,15 @@ class ScyllaStore(object):
             part_start = 0 # position in part blob
             if start > current_start:
                 part_start = start - current_start
-            if part_start >= item.chunk_size:
+
+            logging.info("evaluating part [%s] part_start=%d" % (part, part_start))
+
+            if part_start >= part.size:
                 current_start += part.size
+                logging.info("skipping part.part=%d part.size=%d" % (part.part, part.size))
                 continue # skipping this part
+
+            logging.info("sending part.part=%d" % part.part)
 
             self.read_chunks(output_stream, part.blob_id, part_start, min(part.size, length), item.chunk_size, item.chunks_per_partition)
             current_start += part.size
