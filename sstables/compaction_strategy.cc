@@ -59,6 +59,7 @@
 #include "sstables/compaction_backlog_manager.hh"
 #include "sstables/size_tiered_backlog_tracker.hh"
 #include "sstables/object_aware_compaction_strategy.hh"
+#include "mutation_writer/pk_based_splitting_writer.hh"
 
 logging::logger date_tiered_manifest::logger = logging::logger("DateTieredCompactionStrategy");
 logging::logger leveled_manifest::logger("LeveledManifest");
@@ -1012,6 +1013,20 @@ object_aware_compaction_strategy::object_aware_compaction_strategy(const std::ma
 compaction_backlog_tracker&
 object_aware_compaction_strategy::get_backlog_tracker() {
     return _backlog_tracker;
+}
+
+reader_consumer
+object_aware_compaction_strategy::make_interposer_consumer(const mutation_source_metadata& ms_meta,
+                                                           reader_consumer end_consumer) {
+    if (!_object_id_by_pk_component) {
+        return end_consumer;
+    }
+    return [this, end_consumer = std::move(end_consumer)] (flat_mutation_reader rd) mutable -> future<> {
+        return mutation_writer::segregate_by_pk_component(
+                std::move(rd),
+                std::move(end_consumer),
+                *_object_id_by_pk_component);
+    };
 }
 
 compaction_strategy::compaction_strategy(::shared_ptr<compaction_strategy_impl> impl)
