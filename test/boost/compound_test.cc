@@ -401,3 +401,45 @@ BOOST_AUTO_TEST_CASE(test_prefix_compound_validity) {
     BOOST_REQUIRE_THROW(validate({'\x00', '\x01', 0, '\x00', '\x02', 'a', 'b', '\x00', '\x01', 'a'}), marshal_exception); // to many components
     BOOST_REQUIRE_THROW(validate({'\x00', '\x02', 'a', 'b', '\x00', '\x01', 0}), marshal_exception); // wrong order of components
 }
+
+BOOST_AUTO_TEST_CASE(test_partition_key_composed) {
+    auto s = schema_builder("ks", "cf")
+                .with_column("c1", int32_type, column_kind::partition_key)
+                .with_column("c2", int32_type, column_kind::partition_key)
+                .with_column("v", int32_type)
+                .build();
+
+    std::srand(std::time(nullptr));
+    dht::murmur3_partitioner partitioner;
+    auto key = partition_key::from_deeply_exploded(*s, {43, 78});
+    auto dk = partitioner.decorate_key(*s, key);
+
+    std::cout << "composite pk: " << dk.key().representation() << std::endl;
+    for (auto c : dk.key().components(*s)) {
+        std::cout << "\tpk component: " << c << std::endl;
+    }
+
+    for (auto& i : s->partition_key_columns()) {
+        std::cout << "it: " << i << std::endl;
+    }
+
+    auto get_idx_for_pk_component = [&s] (sstring pk_component) {
+        for (auto& comp : s->partition_key_columns()) {
+            if (comp.name_as_text() == pk_component) {
+                return comp.component_index();
+            }
+        }
+        throw std::runtime_error("no pk component with this name");
+    };
+
+    std::cout << "idx for c1: " << get_idx_for_pk_component("c1") << std::endl;
+    std::cout << "idx for c2: " << get_idx_for_pk_component("c2") << std::endl;
+
+    auto get_component_from_composed_dk = [&] (sstring pk_component) {
+        auto idx = get_idx_for_pk_component(pk_component);
+        return dk.key().get_component(*s, idx);
+    };
+
+    std::cout << "value for c1: " << get_component_from_composed_dk("c1") << std::endl;
+    std::cout << "value for c2: " << get_component_from_composed_dk("c2") << std::endl;
+}

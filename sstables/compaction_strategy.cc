@@ -58,6 +58,7 @@
 #include "time_window_compaction_strategy.hh"
 #include "sstables/compaction_backlog_manager.hh"
 #include "sstables/size_tiered_backlog_tracker.hh"
+#include "sstables/object_aware_compaction_strategy.hh"
 
 logging::logger date_tiered_manifest::logger = logging::logger("DateTieredCompactionStrategy");
 logging::logger leveled_manifest::logger("LeveledManifest");
@@ -995,6 +996,24 @@ size_tiered_compaction_strategy::size_tiered_compaction_strategy(const size_tier
     , _backlog_tracker(std::make_unique<size_tiered_backlog_tracker>())
 {}
 
+object_aware_compaction_strategy::object_aware_compaction_strategy(const std::map<sstring, sstring>& options)
+    : compaction_strategy_impl(options)
+    , _backlog_tracker(std::make_unique<unimplemented_backlog_tracker>())
+{
+    // TODO: validate that pk component, specified by object-identifier, exists in schema
+
+    static constexpr auto object_id_key = "object-identifier";
+
+    if (options.contains(object_id_key)) {
+        _object_id_by_pk_component = options.at(object_id_key);
+    }
+}
+
+compaction_backlog_tracker&
+object_aware_compaction_strategy::get_backlog_tracker() {
+    return _backlog_tracker;
+}
+
 compaction_strategy::compaction_strategy(::shared_ptr<compaction_strategy_impl> impl)
     : _compaction_strategy_impl(std::move(impl)) {}
 compaction_strategy::compaction_strategy() = default;
@@ -1078,6 +1097,9 @@ compaction_strategy make_compaction_strategy(compaction_strategy_type strategy, 
         break;
     case compaction_strategy_type::time_window:
         impl = ::make_shared<time_window_compaction_strategy>(options);
+        break;
+    case compaction_strategy_type::object_aware:
+        impl = ::make_shared<object_aware_compaction_strategy>(options);
         break;
     default:
         throw std::runtime_error("strategy not supported");

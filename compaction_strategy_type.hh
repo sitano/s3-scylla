@@ -30,6 +30,7 @@ enum class compaction_strategy_type {
     leveled,
     date_tiered,
     time_window,
+    object_aware,
 };
 
 enum class reshape_mode { strict, relaxed };

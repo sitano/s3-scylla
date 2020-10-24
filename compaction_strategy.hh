@@ -93,6 +93,8 @@ public:
             return "DateTieredCompactionStrategy";
         case compaction_strategy_type::time_window:
             return "TimeWindowCompactionStrategy";
+        case compaction_strategy_type::object_aware:
+            return "ObjectAwareCompactionStrategy";
         default:
             throw std::runtime_error("Invalid Compaction Strategy");
         }
@@ -113,6 +115,8 @@ public:
             return compaction_strategy_type::date_tiered;
         } else if (short_name == "TimeWindowCompactionStrategy") {
             return compaction_strategy_type::time_window;
+        } else if (short_name == "ObjectAwareCompactionStrategy") {
+            return compaction_strategy_type::object_aware;
         } else {
             throw exceptions::configuration_exception(format("Unable to find compaction strategy class '{}'", name));
         }
