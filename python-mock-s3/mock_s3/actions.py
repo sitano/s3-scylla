@@ -129,8 +129,9 @@ def get_item(handler, bucket_name, item_name):
 
 
 def delete_item(handler, bucket_name, item_name):
-    handler.server.store.delete_item(bucket_name, item_name)
-
+    return
+    # TODO: not implemented
+    # handler.server.store.delete_item(bucket_name, item_name)
 
 def delete_items(handler, bucket_name, keys):
     handler.send_response(200)
@@ -143,11 +144,42 @@ def delete_items(handler, bucket_name, keys):
     xml = xml_templates.deleted_xml.format(contents=xml)
     handler.write(xml)
 
-def create_multipart_upload(handler, bucket_name, key):
+def create_multipart_upload(handler, bucket_name, key, headers):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
     handler.end_headers()
-    # TODO(mmal): handler.server.store.create_multipart_upload(bucket_name, key)
+    uploadId = handler.server.store.create_multipart_upload(bucket_name, key, persistent_headers(headers))
     xml = xml_templates.create_multipart_upload_xml.format(
-        bucket_name=bucket_name, key=key, upload_id='TODO')
+        bucket_name=bucket_name, key=key, upload_id=uploadId)
     handler.write(xml)
+
+def persistent_headers(headers):
+    return {k: v for k, v in headers.items() if k in {
+        'cache-control',
+        'content-disposition',
+        'content-encoding',
+        'content-language',
+        'content-type',
+        'expires',
+    }}
+
+def complete_multipart_upload(handler, bucket_name, key, uploadId):
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'application/xml')
+    handler.end_headers()
+    # TODO: we should also parse req xml here and validate/merge only selected parts, but for now we do all known parts
+    digest = handler.server.store.complete_multipart_upload(bucket_name, key, uploadId)
+    xml = xml_templates.complete_multipart_upload_xml.format(
+        location='TODO',
+        bucket=bucket_name,
+        key=key,
+        etag=digest,
+    )
+    handler.write(xml)
+
+def upload_part(handler, key, partNumber, uploadId, size, data):
+    digest = handler.server.store.upload_part(key, int(partNumber), uploadId, data, size)
+    handler.send_response(200)
+    handler.send_header('ETag', digest)
+    handler.send_header('Content-Length', 0)
+    handler.end_headers()

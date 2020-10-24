@@ -94,4 +94,14 @@ create_multipart_upload_xml = '''\
    <UploadId>{upload_id}</UploadId>
 </InitiateMultipartUploadResult>'''
 
+complete_multipart_upload_xml = '''\
+<?xml version="1.0" encoding="UTF-8"?>
+<CompleteMultipartUploadResult>
+   <Location>{location}</Location>
+   <Bucket>{bucket}</Bucket>
+   <Key>{key}</Key>
+   <ETag>{etag}</ETag>
+</CompleteMultipartUploadResult>
+'''
+
 non_empty_stub = '<?xml version="1.0" encoding="UTF-8"?>'

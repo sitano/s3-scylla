@@ -109,9 +109,13 @@ class ScyllaStore(object):
             ''',
             '''
             CREATE TABLE IF NOT EXISTS multipart_upload (
-                upload_id UUID,
                 object_id UUID,
-                PRIMARY KEY (object_id, upload_id)
+                key TEXT,
+                version INT,
+                upload_id UUID,
+                bucket_id UUID,
+                metadata TEXT,
+                PRIMARY KEY (key, upload_id)
             );
             '''
         ]:
@@ -204,8 +208,6 @@ class ScyllaStore(object):
             return None
 
         item = S3Item(bucket, key=item_name, **metadata)
-        # item.chunks_per_part = obj.chunks_per_part
-        # item.
         return item
 
     def get_item_metadata(self, obj):
@@ -232,74 +234,88 @@ class ScyllaStore(object):
                                  (bucket_id, item_name)).one())
 
     def get_version_header(self, object_id, version):
-        logging.info('get version header [%s/%d]' % (object_id, version))
+        logging.info('get version header [object_id = %s version = %d]' % (object_id, version))
 
         return row_to_version(
             self.session.execute("SELECT * FROM version WHERE object_id = %s AND version = %s",
                                  (object_id, version)).one())
 
     def get_part_header(self, object_id, version, part):
-        logging.info('get part header [%s/%d/%d]' % (object_id, version, part))
+        logging.info('get part header [object_id = %s version = %d part = %d]' % (object_id, version, part))
 
         return row_to_part(
             self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s AND part = %s",
                                  (object_id, version, part)).one())
 
-    def store_item(self, bucket, item_name, headers, size, data):
+    def store_item(self, bucket, item_name, headers, size, data, optional_digest=None, version=1, object_id=None):
+        # TODO: storing multipart became so different from single part that it should be split into two funcs
         logging.info(f'store_item {bucket.name}/{item_name}: {size} bytes')
 
         # load object header
         obj = self.get_object_header(bucket.bucket_id, item_name)
         if obj is None:
-            self.session.execute("INSERT INTO object (bucket_id, key, object_id, version, metadata) "
-                                 "VALUES (%s, %s, uuid(), 1, '')",
-                                 (bucket.bucket_id, item_name))
+            if object_id is None:
+                self.session.execute("INSERT INTO object (bucket_id, key, object_id, version, metadata) "
+                                     "VALUES (%s, %s, uuid(), %s, '')",
+                                     (bucket.bucket_id, item_name, version))
+            else:
+                self.session.execute("INSERT INTO object (bucket_id, key, object_id, version, metadata) "
+                                     "VALUES (%s, %s, %s, %s, '')",
+                                     (bucket.bucket_id, item_name, object_id, version))
             obj = self.get_object_header(bucket.bucket_id, item_name)
+
+        obj.version = version
         logging.info(f'object_header {obj.object_id}#{obj.version}')
 
         # prepare next object version header
         ver = self.get_version_header(obj.object_id, obj.version)
-        version = 1
-        if ver:
-            version = ver.version + 1
+        version = obj.version
+        if data is not None and ver:
+            version += 1
             # TODO: ensure version does not exist
 
-        content_type = headers['content-type']
-        self.session.execute("INSERT INTO version (object_id, bucket_id, version, "
-                             "chunk_size, chunks_per_partition, content_type, creation_date, md5, size, metadata) "
-                             "VALUES (%s, %s, %s,"
-                             "%s, %s, %s, currentTimestamp(), '', %s, '')",
-                             (obj.object_id, obj.bucket_id, version,
-                              self.chunk_size, self.chunks_per_partition, content_type, size))
+        if data is not None or ver is None:
+            ver = self.insert_version(obj.bucket_id, obj.object_id, version, headers, size)
 
-        ver = self.get_version_header(obj.object_id, version)
         logging.info(f'version_header {ver.object_id}#{ver.version}')
 
-        # write data in one part
-        digest = self.write_part(ver, 1, data, size)
+        digest = optional_digest
+        if data is not None:
+            # write data in one part
+            digest = self.write_part(ver, 1, data, size)
 
         # update metadata+md5
         ver.md5 = digest
+        ver.size = size
 
         metadata = {
-            'content_type': content_type,
+            'content_type': headers['content-type'],
             'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
             'md5': digest,
             'size': size,
         }
 
-        self.session.execute("UPDATE version SET md5 = %s, metadata = %s WHERE object_id = %s AND version = %s",
-                             (digest, json.dumps(metadata), ver.object_id, ver.version))
+        self.session.execute("UPDATE version SET md5 = %s, metadata = %s, size = %s WHERE object_id = %s AND version = %s",
+                             (digest, json.dumps(metadata), size, ver.object_id, ver.version))
 
-        self.session.execute("UPDATE object SET version = %s, metadata = %s WHERE bucket_id = %s AND key = %s",
+        self.session.execute("UPDATE object SET version = %s, metadata = %s  WHERE bucket_id = %s AND key = %s",
                              (ver.version, json.dumps(version_to_metadata(ver)), obj.bucket_id, obj.key))
 
         return S3Item(bucket, item_name, **metadata)
 
-    # Chunk/parts operations
+    def insert_version(self, bucket_id, object_id, version, headers, size):
+        self.session.execute("INSERT INTO version (object_id, bucket_id, version, "
+                             "chunk_size, chunks_per_partition, content_type, creation_date, md5, size, metadata) "
+                             "VALUES (%s, %s, %s,"
+                             "%s, %s, %s, currentTimestamp(), '', %s, '')",
+                             (object_id, bucket_id, version,
+                              self.chunk_size, self.chunks_per_partition,  headers['content-type'], size))
+        return self.get_version_header(object_id, version)
 
+    # Chunk/parts operations
     def write_part(self, version, part, data, size):
-        m = hashlib.md5()
+        logging.info('write part [version = %d part = %d]' % (version.version, part))
+        # TODO: possibly we could eliminate update by making chunks before this insert
         self.session.execute("INSERT INTO part (object_id, version, part, blob_id, size)"
                              "VALUES (%s, %s, %s, uuid(), %s)",
                              (version.object_id, version.version, part, size))
@@ -310,6 +326,8 @@ class ScyllaStore(object):
 
         self.session.execute("UPDATE part SET md5 = %s WHERE object_id = %s AND version = %s AND part = %s",
                              (digest, version.object_id, version.version, part))
+
+        return digest
 
     # aws s3api --endpoint http://localhost:8000 create-bucket --bucket my-bucket
     # dd if=/dev/zero bs=1 count=212 of=file
@@ -347,7 +365,7 @@ class ScyllaStore(object):
             return item.part
         parts.sort(key=partNum)
 
-        logging.info("parts [%s]" % parts)
+        logging.info("read all parts [parts = %s version = %d]" % (parts, item.version))
 
         current_start = 0 # absolute position in object
         for part in parts:
@@ -401,6 +419,78 @@ class ScyllaStore(object):
 
             output_stream.write(data)
 
+    def create_multipart_upload(self, bucket_name, key, headers):
+        logging.info('create multipart upload [key = %s]' % (key,))
+        obj = self.get_item(bucket_name, key)
+        bucket = None
+        if obj is not None:
+            bucket = obj.bucket
+        if bucket is None:
+            # TODO: this call could be removed if we refactor get_item()
+            bucket = self.session.execute("SELECT bucket_id FROM bucket WHERE name = %s", (bucket_name,)).one()
+
+        version = 1
+        if obj is not None:
+            version = obj.version + 1
+
+        if obj is None:
+            self.session.execute("INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
+                                 "VALUES (uuid(), %s, %s, uuid(), %s, %s)",
+                                (key, version, bucket.bucket_id, json.dumps(headers)))
+        else:
+            self.session.execute("INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
+                                 "VALUES (%s, %s, %s, uuid(), %s, %s)",
+                                (obj.object_id, key, version, bucket.bucket_id, json.dumps(headers)))
+
+        # TODO: possibly this could be improved
+        upload = self.session.execute(
+            "SELECT object_id, upload_id FROM multipart_upload WHERE key = %s AND version = %s LIMIT 1 ALLOW FILTERING",
+            (key, version)).one()
+
+        # TODO: not sure if according to doc version should be generated on create req
+        self.insert_version(bucket.bucket_id, upload.object_id, version, headers, 0)
+
+        logging.info('multipart upload with version [key = %s version = %d upload_id = %s]' % (key, version, upload.upload_id))
+        return upload.upload_id
+
+    def complete_multipart_upload(self, bucket_name, key, uploadId):
+        logging.info('complete multipart upload [key = %s upload_id = %s]' % (key, uploadId))
+        upload = self.session.execute(f"SELECT * FROM multipart_upload WHERE key = %s AND upload_id = {uploadId}",
+                                    (key,)).one()
+
+        size, digest = self.gather_parts_headers(upload.object_id, upload.version)
+
+        bucket = self.get_bucket(bucket_name)
+        item = self.store_item(bucket, upload.key, json.loads(upload.metadata), size, None,
+                               digest, upload.version, upload.object_id)
+
+        self.session.execute(f"DELETE FROM multipart_upload WHERE key = %s AND upload_id = {upload.upload_id}",
+                             (upload.key,))
+        return item.md5
+
+    def gather_parts_headers(self, object_id, version):
+        parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
+                             (object_id, version)).all()
+        #FIXME: should be returned sorted but order by doesn't work
+        def partNum(item):
+            return item.part
+        parts.sort(key=partNum)
+
+        size = 0
+        m = hashlib.md5()
+        for part in parts:
+            size += part.size
+            m.update(part.md5.encode('utf-8'))
+
+        return size, m.hexdigest()
+
+    def upload_part(self, key, partNumber, uploadId, data, size):
+        # TODO: some validation on uploadId would be great (or binding differently)
+        # TODO: should upload_id be part of partition key?
+        upload = self.session.execute(f"SELECT object_id, version FROM multipart_upload WHERE key = %s AND upload_id = {uploadId} ALLOW FILTERING",
+                                      (key,)).one()
+        ver = self.get_version_header(upload.object_id, upload.version)
+        return self.write_part(ver, partNumber, data, size)
 
 def row_to_object(row):
     if row:

@@ -18,7 +18,6 @@ from .scylla_store import ScyllaStore
 
 logging.basicConfig(level=logging.INFO)
 
-
 class S3Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
@@ -130,8 +129,16 @@ class S3Handler(BaseHTTPRequestHandler):
             else:
                 item_name = path.strip('/')
 
+            headers = {}
+            for key in self.headers:
+                headers[key.lower()] = self.headers[key]
+            if 'content-type' not in headers:
+                headers['content-type'] = 'application/octet-stream'
+
             if 'uploads' in qs:
-                req_type = 'uploads'
+                req_type = 'CreateMultipartUpload'
+            elif 'uploadId' in qs:
+                req_type = 'CompleteMultipartUpload'
 
             if not item_name and 'delete' in qs:
                 req_type = 'delete_keys'
@@ -144,12 +151,22 @@ class S3Handler(BaseHTTPRequestHandler):
             for obj in root.findall('Object'):
                 keys.append(obj.find('Key').text)
             delete_items(self, bucket_name, keys)
-        elif req_type == 'uploads':
-            create_multipart_upload(self, bucket_name, item_name)
+        elif req_type == 'CreateMultipartUpload':
+            create_multipart_upload(self, bucket_name, item_name, headers)
+        elif req_type == 'CompleteMultipartUpload':
+            complete_multipart_upload(self, bucket_name, item_name, qs['uploadId'][0])
         else:
             self.write('%s: [%s] %s' % (req_type, bucket_name, item_name))
 
     def do_PUT(self):
+        try:
+            self.do_PUT_wrapped()
+        except ConnectionResetError:
+            logging.warning("connection reset")
+        except BrokenPipeError:
+            logging.warning("broken pipe")
+
+    def do_PUT_wrapped(self):
         parsed_path = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed_path.query, True)
         host = self.headers['host'].split(':')[0]
@@ -165,7 +182,9 @@ class S3Handler(BaseHTTPRequestHandler):
 
         if path == '/' and bucket_name:
             req_type = 'create_bucket'
-
+        elif 'partNumber' in qs and 'uploadId' in qs:
+            item_name = os.path.basename(path.strip('/'))
+            req_type = 'upload_part'
         else:
             if not bucket_name:
                 bucket_name, sep, item_name = path.strip('/').partition('/')
@@ -210,6 +229,13 @@ class S3Handler(BaseHTTPRequestHandler):
                 self.send_header('Etag', '"%s"' % item.md5)
             else:
                 self.send_response(404, '')
+
+        elif req_type == 'upload_part':
+            size = int(self.headers['Content-Length'])
+            if size == 0:
+                size = int(self.headers['content-length'])
+
+            upload_part(self, item_name, qs['partNumber'][0], qs['uploadId'][0], size, self.rfile)
 
         elif req_type == 'copy':
             self.server.store.copy_item(src_bucket, src_key, bucket_name, item_name, self)

@@ -5,6 +5,8 @@ set -euo pipefail
 head -c 128M </dev/urandom > tmpfile
 trap "rm tmpfile tmpfile_s3" EXIT
 
+echo "uploading..."
+
 # upload object
 aws s3 --endpoint http://localhost:8000 cp tmpfile s3://bucket_1/tmpfile
 
