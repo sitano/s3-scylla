@@ -19,13 +19,9 @@
  * along with Scylla.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/*
- * This module manages CDC log tables. It contains facilities used to:
- * - perform schema changes to CDC log tables correspondingly when base tables are changed,
- * - perform writes to CDC log tables correspondingly when writes to base tables are made.
- */
-
 #pragma once
+
+#include <queue>
 
 #include "bytes.hh"
 #include "exceptions/exceptions.hh"
@@ -42,7 +38,15 @@ namespace cdc {
 class s3_log_accumulator {
     bytes _current_chunk;
     int _current_chunk_number = 0;
+    int _total_length = 0;
     bool _initialized = false;
+
+    // Because we don't want to end the object in the middle of some
+    // line, we store _current_length which is the last position of
+    // line (last byte) inside last fully-completed chunk. _line_endings
+    // queue allows us to update _current_length.
+    int _current_length = 0;
+    std::queue<int> _line_endings;
 
     utils::UUID _object_id;
     utils::UUID _blob_id;
