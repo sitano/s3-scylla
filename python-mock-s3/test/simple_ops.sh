@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # generate random file (1310720 bytes)
-head -c 1310720 </dev/urandom > tmpfile
+openssl rand -out tmpfile 1310720
+# head -c 1310720 </dev/urandom > tmpfile
 trap "rm tmpfile tmpfile_s3" EXIT
 
 # upload object

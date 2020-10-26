@@ -6,7 +6,8 @@ set -euo pipefail
 # generate random file (1048576 bytes)
 mkdir -p tmpdir
 for i in {1..1024}; do
-  head -c 1048576 </dev/urandom > tmpdir/tmpfile_${i};
+  openssl rand -out tmpdir/tmpfile_${i} 1048576;
+  # head -c 1048576 </dev/urandom > tmpdir/tmpfile_${i};
 done
 trap "rm -rf tmpdir tmpdir_s3" EXIT
 
