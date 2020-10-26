@@ -23,14 +23,23 @@
 
 #include "compaction_strategy.hh"
 #include "compaction_strategy_impl.hh"
+#include "compaction_descriptor.hh"
 #include <map>
+#include <unordered_map>
 #include <vector>
  
 namespace sstables {
 
 class object_aware_compaction_strategy : public compaction_strategy_impl {
     compaction_backlog_tracker _backlog_tracker;
-    std::optional<sstring> _object_id_by_pk_component;
+    std::optional<sstring> _object_id_pk_component;
+    std::optional<unsigned> _object_id_pk_component_idx;
+public:
+    using objects_map = std::unordered_map<bytes_view, std::vector<shared_sstable>>;
+private:
+    void maybe_init_pk_component_idx(const schema_ptr& schema);
+
+    objects_map group_sstables_by_pk_component(const std::vector<sstables::shared_sstable>& ssts) const;
 public:
     object_aware_compaction_strategy(const std::map<sstring, sstring>& options);
 

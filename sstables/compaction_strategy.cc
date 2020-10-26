@@ -1006,7 +1006,7 @@ object_aware_compaction_strategy::object_aware_compaction_strategy(const std::ma
     static constexpr auto object_id_key = "object-identifier";
 
     if (options.contains(object_id_key)) {
-        _object_id_by_pk_component = options.at(object_id_key);
+        _object_id_pk_component = options.at(object_id_key);
     }
 }
 
@@ -1018,14 +1018,14 @@ object_aware_compaction_strategy::get_backlog_tracker() {
 reader_consumer
 object_aware_compaction_strategy::make_interposer_consumer(const mutation_source_metadata& ms_meta,
                                                            reader_consumer end_consumer) {
-    if (!_object_id_by_pk_component) {
+    if (!_object_id_pk_component) {
         return end_consumer;
     }
     return [this, end_consumer = std::move(end_consumer)] (flat_mutation_reader rd) mutable -> future<> {
         return mutation_writer::segregate_by_pk_component(
                 std::move(rd),
                 std::move(end_consumer),
-                *_object_id_by_pk_component);
+                *_object_id_pk_component);
     };
 }
 
