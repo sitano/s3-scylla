@@ -105,7 +105,7 @@ class ScyllaStore(object):
                 ix INT,
                 data BLOB,
                 PRIMARY KEY ((blob_id, partition), ix)
-            ) WITH CLUSTERING ORDER BY (ix ASC);
+            ) WITH CLUSTERING ORDER BY (ix ASC) and compaction = { 'class': 'ObjectAwareCompactionStrategy', 'object-identifier': 'blob_id' };
             ''',
             '''
             CREATE TABLE IF NOT EXISTS multipart_upload (
