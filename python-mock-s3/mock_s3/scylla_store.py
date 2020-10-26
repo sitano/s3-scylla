@@ -223,8 +223,8 @@ class ScyllaStore(object):
         metadata['object_id'] = obj.object_id
         return metadata
 
-    def read_item(self, output_stream, item, start=None, length=None):
-        self.read_parts(output_stream, item, start, length)
+    def read_item(self, item, start=None, length=None):
+        return self.read_parts(item, start, length)
 
     def get_object_header(self, bucket_id, item_name):
         logging.info('get object header [%s/%s]' % (bucket_id, item_name))
@@ -247,7 +247,7 @@ class ScyllaStore(object):
             self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s AND part = %s",
                                  (object_id, version, part)).one())
 
-    def store_item(self, bucket, item_name, headers, size, data, optional_digest=None, version=1, object_id=None):
+    async def store_item(self, bucket, item_name, headers, size, data, optional_digest=None, version=1, object_id=None):
         # TODO: storing multipart became so different from single part that it should be split into two funcs
         logging.info(f'store_item {bucket.name}/{item_name}: {size} bytes')
 
@@ -282,7 +282,7 @@ class ScyllaStore(object):
         digest = optional_digest
         if data is not None:
             # write data in one part
-            digest = self.write_part(ver, 1, data, size)
+            digest = await self.write_part(ver, 1, data, size)
 
         # update metadata+md5
         ver.md5 = digest
@@ -313,7 +313,7 @@ class ScyllaStore(object):
         return self.get_version_header(object_id, version)
 
     # Chunk/parts operations
-    def write_part(self, version, part, data, size):
+    async def write_part(self, version, part, data, size):
         logging.info('write part [version = %d part = %d]' % (version.version, part))
         # TODO: possibly we could eliminate update by making chunks before this insert
         self.session.execute("INSERT INTO part (object_id, version, part, blob_id, size)"
@@ -322,7 +322,7 @@ class ScyllaStore(object):
 
         part_header = self.get_part_header(version.object_id, version.version, part)
 
-        digest = self.write_chunks(part_header.blob_id, data, size, version.chunk_size, version.chunks_per_partition)
+        digest = await self.write_chunks(part_header.blob_id, data, size, version.chunk_size, version.chunks_per_partition)
 
         self.session.execute("UPDATE part SET md5 = %s WHERE object_id = %s AND version = %s AND part = %s",
                              (digest, version.object_id, version.version, part))
@@ -332,7 +332,7 @@ class ScyllaStore(object):
     # aws s3api --endpoint http://localhost:8000 create-bucket --bucket my-bucket
     # dd if=/dev/zero bs=1 count=212 of=file
     # aws s3 --endpoint http://localhost:8000 cp file s3://my-bucket/file
-    def write_chunks(self, blob_id, stream, size, chunk_size, partition_chunks):
+    async def write_chunks(self, blob_id, stream, size, chunk_size, partition_chunks):
         m = hashlib.md5()
 
         # Round it up - the last chunk might be smaller
@@ -343,21 +343,39 @@ class ScyllaStore(object):
         # TODO - double check if this calculation is correct (what if there is a single chunk? - not tested)
         last_chunk_size = size - (chunk_count - 1) * chunk_size
 
-        for chunk_number in range(chunk_count):
-            partition = chunk_number // partition_chunks
-            ix = chunk_number % partition_chunks
+        buf = bytearray()
+        chunk_number = 0
+        async for chunk in stream:
+            buf.extend(chunk)
+            while True:
+                bytes_to_read = 0
+                if chunk_number == last_chunk_number and len(buf) >= last_chunk_size:
+                    bytes_to_read = last_chunk_size
+                if len(buf) >= chunk_size:
+                    bytes_to_read = chunk_size
+                if chunk_number >= chunk_count:
+                    logging.warning("unexpected stream end")
+                    return 'ffff'
+                if bytes_to_read > 0:
+                    data = buf[0:bytes_to_read]
+                    buf = buf[bytes_to_read:]
+                    m.update(data)
+                    self.write_chunk(blob_id, data, chunk_number, partition_chunks)
+                    chunk_number += 1
+                else:
+                    break # drained buf, need more stream reads
 
-            bytes_to_read = chunk_size
-            if chunk_number == last_chunk_number:
-                bytes_to_read = last_chunk_size
-
-            data = stream.read(bytes_to_read)
-            m.update(data)
-            self.session.execute(self.insert_chunk_stmt, [blob_id, partition, ix, data])
+        if len(buf) > 0:
+            logging.warning("left non-written buf")
 
         return m.hexdigest()
 
-    def read_parts(self, output_stream, item, start, length):
+    def write_chunk(self, blob_id, data, chunk_number, partition_chunks):
+        partition = chunk_number // partition_chunks
+        ix = chunk_number % partition_chunks
+        self.session.execute(self.insert_chunk_stmt, [blob_id, partition, ix, data])
+
+    def read_parts(self, item, start, length):
         parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
                              (item.object_id, item.version)).all()
         #FIXME: should be returned sorted but order by doesn't work
@@ -384,12 +402,13 @@ class ScyllaStore(object):
 
             logging.info("sending part.part=%d" % part.part)
 
-            self.read_chunks(output_stream, part.blob_id, part_start, min(part.size, length), item.chunk_size, item.chunks_per_partition)
+            chunk = self.read_chunks(part.blob_id, part_start, min(part.size, length), item.chunk_size, item.chunks_per_partition)
+            yield chunk
             current_start += part.size
             length -= part.size
         #TODO: if at this point length > 0 then something went wrong (requested more data than we have)
 
-    def read_chunks(self, output_stream, blob_id, start_byte, length, chunk_size, partition_chunks):
+    def read_chunks(self, blob_id, start_byte, length, chunk_size, partition_chunks):
         end_byte = start_byte + length - 1
 
         start_chunk = start_byte // chunk_size
@@ -403,13 +422,18 @@ class ScyllaStore(object):
         start_chunk_offset = start_byte - start_chunk * chunk_size
         end_chunk_length = end_byte - (end_chunk - 1) * chunk_size + 1
 
+        buf = bytearray()
         # TODO - do not read chunk by chunk, instead partition by partition!
         for chunk_number in range(start_chunk, end_chunk + 1):
             partition = chunk_number // partition_chunks
             ix = chunk_number % partition_chunks
 
             # TODO - handle errors!
-            data = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one().data
+            r = self.session.execute(self.select_chunk_stmt, [blob_id, partition, ix]).one()
+            if r is None:
+                logging.error("none chunk data")
+
+            data = r.data
 
             if chunk_number == start_chunk:
                 data = data[start_chunk_offset:]
@@ -417,7 +441,9 @@ class ScyllaStore(object):
             if chunk_number == end_chunk:
                 data = data[:end_chunk_length]
 
-            output_stream.write(data)
+            buf.extend(data)
+
+        return bytes(buf)
 
     def create_multipart_upload(self, bucket_name, key, headers):
         logging.info('create multipart upload [key = %s]' % (key,))
@@ -453,7 +479,7 @@ class ScyllaStore(object):
         logging.info('multipart upload with version [key = %s version = %d upload_id = %s]' % (key, version, upload.upload_id))
         return upload.upload_id
 
-    def complete_multipart_upload(self, bucket_name, key, uploadId):
+    async def complete_multipart_upload(self, bucket_name, key, uploadId):
         logging.info('complete multipart upload [key = %s upload_id = %s]' % (key, uploadId))
         upload = self.session.execute(f"SELECT * FROM multipart_upload WHERE key = %s AND upload_id = {uploadId}",
                                     (key,)).one()
@@ -461,7 +487,7 @@ class ScyllaStore(object):
         size, digest = self.gather_parts_headers(upload.object_id, upload.version)
 
         bucket = self.get_bucket(bucket_name)
-        item = self.store_item(bucket, upload.key, json.loads(upload.metadata), size, None,
+        item = await self.store_item(bucket, upload.key, json.loads(upload.metadata), size, None,
                                digest, upload.version, upload.object_id)
 
         self.session.execute(f"DELETE FROM multipart_upload WHERE key = %s AND upload_id = {upload.upload_id}",
@@ -484,13 +510,13 @@ class ScyllaStore(object):
 
         return size, m.hexdigest()
 
-    def upload_part(self, key, partNumber, uploadId, data, size):
+    async def upload_part(self, key, partNumber, uploadId, data, size):
         # TODO: some validation on uploadId would be great (or binding differently)
         # TODO: should upload_id be part of partition key?
         upload = self.session.execute(f"SELECT object_id, version FROM multipart_upload WHERE key = %s AND upload_id = {uploadId} ALLOW FILTERING",
                                       (key,)).one()
         ver = self.get_version_header(upload.object_id, upload.version)
-        return self.write_part(ver, partNumber, data, size)
+        return await self.write_part(ver, partNumber, data, size)
 
 def row_to_object(row):
     if row:
