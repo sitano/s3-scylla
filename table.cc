@@ -44,6 +44,7 @@
 #include <boost/range/adaptor/map.hpp>
 #include "utils/error_injection.hh"
 #include "utils/histogram_metrics_helper.hh"
+#include "mutation_source_metadata.hh"
 
 static logging::logger tlogger("table");
 static seastar::metrics::label column_family_label("cf");
@@ -771,9 +772,6 @@ table::seal_active_memtable(flush_permit&& permit) {
 future<stop_iteration>
 table::try_flush_memtable_to_sstable(lw_shared_ptr<memtable> old, sstable_write_permit&& permit) {
   return with_scheduling_group(_config.memtable_scheduling_group, [this, old = std::move(old), permit = std::move(permit)] () mutable {
-    auto newtab = make_sstable();
-
-    tlogger.debug("Flushing to {}", newtab->get_filename());
     // Note that due to our sharded architecture, it is possible that
     // in the face of a value change some shards will backup sstables
     // while others won't.
@@ -785,41 +783,63 @@ table::try_flush_memtable_to_sstable(lw_shared_ptr<memtable> old, sstable_write_
     //
     // The code as is guarantees that we'll never partially backup a
     // single sstable, so that is enough of a guarantee.
-    database_sstable_write_monitor monitor(std::move(permit), newtab, _compaction_manager, _compaction_strategy, old->get_max_timestamp());
-    return do_with(std::move(monitor), [this, old, newtab] (auto& monitor) {
+
+    return do_with(std::move(permit), [this, old] (sstable_write_permit& permit) {
+        // TODO release permit earlier, on a sstable which had on_data_write_completed() called on its behalf
+
+      // FIXME: indentation
+
+      auto metadata = mutation_source_metadata{};
+      const auto estimation = _compaction_strategy.adjust_partition_estimate(metadata, old->partition_count());
+      auto consumer = _compaction_strategy.make_interposer_consumer(metadata, [this, old, estimation] (flat_mutation_reader reader) {
         auto&& priority = service::get_local_memtable_flush_priority();
         sstables::sstable_writer_config cfg = get_sstables_manager().configure_writer();
         cfg.backup = incremental_backups_enabled();
+
+        auto newtab = make_sstable();
+
+        auto monitor = std::make_unique<database_sstable_write_monitor>(sstable_write_permit::unconditional(),
+            newtab, _compaction_manager, _compaction_strategy, old->get_max_timestamp());
+
+        tlogger.debug("Flushing to {}", newtab->get_filename());
         
-        // TODO: segregate data here using strategy's interposer consume
-        // check how streaming/stream_session does it
-        
-        auto f = write_memtable_to_sstable(*old, newtab, monitor, cfg, priority);
+        cfg.monitor = &*monitor;
+        cfg.replay_position = old->replay_position();
+
+        auto f = do_with(std::move(monitor), [newtab, &cfg, estimation, &mt = *old, reader = std::move(reader), &priority] (auto&& monitor) mutable {
+            return newtab->write_components(std::move(reader), estimation, mt.schema(), cfg, mt.get_encoding_stats(), priority);
+        });
+
         // Switch back to default scheduling group for post-flush actions, to avoid them being staved by the memtable flush
         // controller. Cache update does not affect the input of the memtable cpu controller, so it can be subject to
         // priority inversion.
-        return with_scheduling_group(default_scheduling_group(), [this, old = std::move(old), newtab = std::move(newtab), f = std::move(f)] () mutable {
+        return with_scheduling_group(default_scheduling_group(), [this, old, newtab = std::move(newtab), f = std::move(f)] () mutable {
             return f.then([this, newtab, old] {
                 return newtab->open_data().then([this, old, newtab] () {
                     tlogger.debug("Flushing to {} done", newtab->get_filename());
                     return with_scheduling_group(_config.memtable_to_cache_scheduling_group, [this, old, newtab] {
                         return update_cache(old, newtab);
                     });
-                }).then([this, old, newtab] () noexcept {
-                    _memtables->erase(old);
+                }).then([this, newtab] () noexcept {
                     tlogger.debug("Memtable for {} replaced", newtab->get_filename());
-                    return stop_iteration::yes;
+                    return make_ready_future<>();
                 });
-            }).handle_exception([this, old, newtab] (auto e) {
+            }).handle_exception([this, newtab] (auto e) {
                 newtab->mark_for_deletion();
-                _config.cf_stats->failed_memtables_flushes_count++;
                 tlogger.error("failed to write sstable {}: {}", newtab->get_filename(), e);
-                // If we failed this write we will try the write again and that will create a new flush reader
-                // that will decrease dirty memory again. So we need to reset the accounting.
-                old->revert_flushed_memory();
-                return stop_iteration(_async_gate.is_closed());
             });
         });
+      });
+      return consumer(old->make_flush_reader(old->schema(), service::get_local_memtable_flush_priority())).then([this, old] {
+        _memtables->erase(old);
+        return stop_iteration::yes;
+      }).handle_exception([this, old] (auto e) {
+        _config.cf_stats->failed_memtables_flushes_count++;
+        // If we failed this write we will try the write again and that will create a new flush reader
+        // that will decrease dirty memory again. So we need to reset the accounting.
+        old->revert_flushed_memory();
+        return stop_iteration(_async_gate.is_closed());
+      });
     });
   });
 }
