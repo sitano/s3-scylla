@@ -1,3 +1,24 @@
+/*
+ * Copyright (C) 2020 ScyllaDB
+ */
+
+/*
+ * This file is part of Scylla.
+ *
+ * Scylla is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Scylla is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Scylla.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "cdc/s3_log.hh"
 #include "database.hh"
 
@@ -52,6 +73,8 @@ void cdc::s3_log_accumulator::append_cdc_log_mutations(const std::vector<mutatio
             row_string += "\n";
 
             _current_chunk += to_bytes(row_string);
+            _total_length += row_string.size();
+            _line_endings.push(_total_length);
         }
     }
 }
@@ -97,6 +120,11 @@ std::vector<mutation> cdc::s3_log_accumulator::generate_mutations() {
         _current_chunk_number++;
     }
 
+    while (!_line_endings.empty() && _line_endings.front() < _current_chunk_number * chunk_size) {
+        _current_length = _line_endings.front();
+        _line_endings.pop();
+    }
+
     utils::UUID bucket_id("cdc0cdc0-cdc0-cdc0-cdc0-cdc0cdc0cdc0");
     time_native_type creation_date;
     creation_date.nanoseconds = timestamp / 1000;
@@ -107,7 +135,7 @@ std::vector<mutation> cdc::s3_log_accumulator::generate_mutations() {
 
     auto object_key_ck = clustering_key::from_single_value(*s3_object_schema, to_bytes(_object_name));
     sstring object_metadata_string = R"({"content_type": "text/plain", "creation_date": "2020-10-24T11:36:22.000Z", "md5": "not implemented", "size": )";
-    object_metadata_string += std::to_string(_current_chunk_number * chunk_size);
+    object_metadata_string += std::to_string(_current_length);
     object_metadata_string += R"(, "blob_id": ")";
     object_metadata_string += _blob_id.to_sstring();
     object_metadata_string += R"(", "chunk_size": )";
@@ -132,7 +160,7 @@ std::vector<mutation> cdc::s3_log_accumulator::generate_mutations() {
     version_mutation.set_clustered_cell(version_ck, to_bytes("content_type"), data_value(sstring("text/plain")), timestamp);
     version_mutation.set_clustered_cell(version_ck, to_bytes("creation_date"), data_value(creation_date), timestamp);
     version_mutation.set_clustered_cell(version_ck, to_bytes("md5"), data_value(sstring("not implemented")), timestamp);
-    version_mutation.set_clustered_cell(version_ck, to_bytes("size"), data_value(_current_chunk_number * chunk_size), timestamp);  
+    version_mutation.set_clustered_cell(version_ck, to_bytes("size"), data_value(_current_length), timestamp);  
     version_mutation.set_clustered_cell(version_ck, to_bytes("metadata"), object_metadata, timestamp);  
     
     auto object_key_pk2 = partition_key::from_single_value(*s3_part_schema, _object_id.serialize());
@@ -141,7 +169,7 @@ std::vector<mutation> cdc::s3_log_accumulator::generate_mutations() {
     mutation part_mutation(s3_part_schema, object_key_pk2);
     part_mutation.set_clustered_cell(version_part_ck, to_bytes("blob_id"), data_value(_blob_id), timestamp);
     part_mutation.set_clustered_cell(version_part_ck, to_bytes("md5"), data_value(sstring("not implemented")), timestamp);    
-    part_mutation.set_clustered_cell(version_part_ck, to_bytes("size"), data_value(_current_chunk_number * chunk_size), timestamp);  
+    part_mutation.set_clustered_cell(version_part_ck, to_bytes("size"), data_value(_current_length), timestamp);  
 
     result.push_back(bucket_mutation);
     result.push_back(object_mutation);
