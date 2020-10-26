@@ -33,9 +33,9 @@ def ls_bucket(handler, bucket_name, qs):
         for item in bucket_query.matches:
             if item.content_type == 'application/x-directory':
                 item.key += '/'
-            contents += xml_templates.bucket_query_content_xml.format(s3_item=item) + "\n"
+            contents += xml_templates.bucket_query_content_xml.format(s3_item=item)
         for prefix in bucket_query.prefixes:
-            prefixes += xml_templates.bucket_query_prefixes_xml.format(prefix=prefix) + "\n"
+            prefixes += xml_templates.bucket_query_prefixes_xml.format(prefix=prefix)
         xml = xml_templates.bucket_query_xml.format(bucket_query=bucket_query, contents=contents, prefixes=prefixes)
 
         handler.write(xml)
