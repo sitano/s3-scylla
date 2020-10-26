@@ -35,16 +35,7 @@ public:
     object_aware_compaction_strategy(const std::map<sstring, sstring>& options);
 
     virtual compaction_descriptor
-    get_sstables_for_compaction(column_family& cfs, std::vector<sstables::shared_sstable> candidates) override {
-        // TODO: 
-        // IMPL:
-        // 1) Find if any sstable break the invariant (store data for more than one object (PK COMPONENT)), and compact it for the invariant to be restored.
-        // NOTE: Only proceed to step 2, if the invariant is not broken.
-        // 2) Group sstables by object (PK COMPONENT)
-        // 3) Schedule compaction for an object which has at least one SSTable with tombstone, if any.
-        
-        return sstables::compaction_descriptor();
-    }
+    get_sstables_for_compaction(column_family& cf, std::vector<sstables::shared_sstable> candidates) override;
 
     virtual int64_t estimated_pending_compactions(column_family& cf) const override {
         return 0;

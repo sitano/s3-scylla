@@ -6685,3 +6685,65 @@ SEASTAR_TEST_CASE(test_zero_estimated_partitions) {
         return make_ready_future<>();
     });
 }
+
+SEASTAR_TEST_CASE(test_sst_metadata_composed_pkey) {
+    // INSERT INTO table (c1, c2, v) VALUES (0, 1, 'a');
+    // INSERT INTO table (c1, c2, v) VALUES (0, 2, 'a');
+
+    return test_env::do_with_async([] (test_env& env) {
+        storage_service_for_tests ssft;
+        
+        auto s = schema_builder("ks", "cf")
+            .with_column("c1", int32_type, column_kind::partition_key)
+            .with_column("c2", int32_type, column_kind::partition_key)
+            .with_column("v", int32_type)
+            .build();
+
+        auto tmp = tmpdir();
+        auto sst_gen = [&env, s, tmp = tmp.path().string(), gen = make_lw_shared<unsigned>(1)] () mutable {
+            return env.make_sstable(s, tmp, (*gen)++, la, big);
+        };
+
+        auto make_insert = [&] (partition_key key) {
+            mutation m(s, key);
+            m.set_clustered_cell(clustering_key::make_empty(), bytes("v"), data_value(int32_t(1)), 1);
+            return m;
+        };
+
+        auto key = partition_key::from_deeply_exploded(*s, {0, 1});
+        auto key2 = partition_key::from_deeply_exploded(*s, {0, 2});
+
+        std::cout << "composite key 1: " << key.representation() << std::endl;
+        std::cout << "composite key 2: " << key2.representation() << std::endl;
+
+        auto m1 = make_insert(std::move(key));
+        auto m2 = make_insert(std::move(key2));
+
+        auto sst = make_sstable_containing(sst_gen, {std::move(m1), std::move(m2)});
+
+        auto sst_first = sst->get_first_partition_key();
+        auto sst_last = sst->get_last_partition_key();
+
+        std::cout << "sst's first composite key: " << sst_first.representation() << std::endl;
+        std::cout << "sst's last composite key: " << sst_last.representation() << std::endl;
+        
+        auto get_idx_for_pk_component = [&s] (sstring pk_component) {
+            for (auto& comp : s->partition_key_columns()) {
+                if (comp.name_as_text() == pk_component) {
+                    return comp.component_index();
+                }
+            }
+            throw std::runtime_error("no pk component with this name");
+        };
+        
+        auto idx = get_idx_for_pk_component("c1");
+        std::cout << "idx for c1: " << idx << std::endl;
+
+        auto get_component_from_composed_dk = [&s] (partition_key& key, auto idx) {
+            return key.get_component(*s, idx);
+        };
+
+        std::cout << "first component of sst's first key: " << get_component_from_composed_dk(sst_first, 0) << std::endl;
+        std::cout << "first component of sst's last key: " << get_component_from_composed_dk(sst_last, 0) << std::endl;
+    });
+}
