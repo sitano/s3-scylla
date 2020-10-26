@@ -83,10 +83,10 @@ object_aware_compaction_strategy::get_sstables_for_compaction(column_family& cf,
         }
         // age of data is taken into account, to prevent tombstone compaction from being triggered infinitely
         bool has_old_enough_data = std::any_of(entry.second.begin(), entry.second.end(), [this] (const shared_sstable& sst) {
-            return (db_clock::now()-_tombstone_compaction_interval) < sst->data_file_write_time();
+            return sst->data_file_write_time() < (db_clock::now()-_tombstone_compaction_interval);
         });
         if (has_old_enough_data) {
-            oacs_logger.info("Performing garbage collection on the SSTables for object identified by {}", entry.first);
+            oacs_logger.info("Performing garbage collection on the SSTables for object identified by {}", bytes(entry.first));
             return compaction_descriptor(std::move(entry.second),
                                          cf.get_sstable_set(),
                                          service::get_local_compaction_priority());
