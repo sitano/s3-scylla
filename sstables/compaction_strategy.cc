@@ -1003,8 +1003,6 @@ object_aware_compaction_strategy::object_aware_compaction_strategy(const std::ma
 {
     // TODO: validate that pk component, specified by object-identifier, exists in schema
 
-    static constexpr auto object_id_key = "object-identifier";
-
     if (options.contains(object_id_key)) {
         _object_id_pk_component = options.at(object_id_key);
     }

@@ -36,6 +36,7 @@ class object_aware_compaction_strategy : public compaction_strategy_impl {
     std::optional<unsigned> _object_id_pk_component_idx;
 public:
     using objects_map = std::unordered_map<bytes_view, std::vector<shared_sstable>>;
+    static constexpr auto object_id_key = "object-identifier";
 private:
     void maybe_init_pk_component_idx(const schema_ptr& schema);
 

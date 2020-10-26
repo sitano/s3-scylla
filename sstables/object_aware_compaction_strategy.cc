@@ -25,6 +25,8 @@
 #include "service/priority_manager.hh"
 #include <algorithm>
 
+logging::logger oacs_logger("ObjectAwareCompactionStrategy");
+
 namespace sstables {
 
 void object_aware_compaction_strategy::maybe_init_pk_component_idx(const schema_ptr& schema) {
@@ -65,6 +67,7 @@ object_aware_compaction_strategy::get_sstables_for_compaction(column_family& cf,
     // NOTE: Only proceed to step 2, if the invariant is not broken.
 
     if (!_object_id_pk_component) {
+        oacs_logger.warn("Object identifier wasn't set via option {}, please set one for the strategy to work.", object_id_key);
         return compaction_descriptor();
     }
     maybe_init_pk_component_idx(cf.schema());
