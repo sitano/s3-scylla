@@ -29,17 +29,14 @@ logging::logger oacs_logger("ObjectAwareCompactionStrategy");
 
 namespace sstables {
 
-void object_aware_compaction_strategy::maybe_init_pk_component_idx(const schema_ptr& schema) {
-    if (_object_id_pk_component_idx) {
-        return;
-    }
+unsigned object_aware_compaction_strategy::retrieve_pk_component_idx(const schema_ptr& schema) const {
     for (auto& comp : schema->partition_key_columns()) {
         if (comp.name_as_text() == *_object_id_pk_component) {
-            _object_id_pk_component_idx = comp.component_index();
-            return;
+            return comp.component_index();
         }
     }
-    throw std::runtime_error("no pk component with this name");
+    throw std::runtime_error(format("no partition key component with the name {} specified in strategy option {}",
+                                    *_object_id_pk_component, object_id_key));
 }
 
 object_aware_compaction_strategy::objects_map
@@ -67,10 +64,11 @@ object_aware_compaction_strategy::get_sstables_for_compaction(column_family& cf,
     // NOTE: Only proceed to step 2, if the invariant is not broken.
 
     if (!_object_id_pk_component) {
-        oacs_logger.warn("Object identifier wasn't set via option {}, please set one for the strategy to work.", object_id_key);
         return compaction_descriptor();
     }
-    maybe_init_pk_component_idx(cf.schema());
+    if (!_object_id_pk_component_idx) {
+        _object_id_pk_component_idx = retrieve_pk_component_idx(cf.schema());
+    }
 
     objects_map map = group_sstables_by_pk_component(candidates);
 
@@ -88,6 +86,7 @@ object_aware_compaction_strategy::get_sstables_for_compaction(column_family& cf,
             return (db_clock::now()-_tombstone_compaction_interval) < sst->data_file_write_time();
         });
         if (has_old_enough_data) {
+            oacs_logger.info("Performing garbage collection on the SSTables for object identified by {}", entry.first);
             return compaction_descriptor(std::move(entry.second),
                                          cf.get_sstable_set(),
                                          service::get_local_compaction_priority());

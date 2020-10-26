@@ -38,7 +38,7 @@ public:
     using objects_map = std::unordered_map<bytes_view, std::vector<shared_sstable>>;
     static constexpr auto object_id_key = "object-identifier";
 private:
-    void maybe_init_pk_component_idx(const schema_ptr& schema);
+    unsigned retrieve_pk_component_idx(const schema_ptr& schema) const;
 
     objects_map group_sstables_by_pk_component(const std::vector<sstables::shared_sstable>& ssts) const;
 public:
@@ -65,6 +65,8 @@ public:
     virtual bool use_interposer_consumer() const override {
         return true;
     }
+
+    virtual std::unique_ptr<sstable_set_impl> make_sstable_set(schema_ptr schema) const override;
 };
 
 }

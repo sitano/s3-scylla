@@ -64,6 +64,8 @@
 logging::logger date_tiered_manifest::logger = logging::logger("DateTieredCompactionStrategy");
 logging::logger leveled_manifest::logger("LeveledManifest");
 
+extern logging::logger oacs_logger;
+
 namespace sstables {
 
 extern logging::logger clogger;
@@ -207,6 +209,7 @@ sstable_set::make_incremental_selector() const {
 
 // default sstable_set, not specialized for anything
 class bag_sstable_set : public sstable_set_impl {
+protected:
     // erasing is slow, but select() is fast
     std::vector<shared_sstable> _sstables;
 public:
@@ -997,6 +1000,59 @@ size_tiered_compaction_strategy::size_tiered_compaction_strategy(const size_tier
     , _backlog_tracker(std::make_unique<size_tiered_backlog_tracker>())
 {}
 
+class object_sstable_set final : public bag_sstable_set {
+    schema_ptr _schema;
+    std::optional<unsigned> _object_id_pk_component_idx;
+public:
+    object_sstable_set(schema_ptr schema, std::optional<unsigned> object_id_pk_component_idx)
+        : bag_sstable_set()
+        , _schema(std::move(schema))
+        , _object_id_pk_component_idx(object_id_pk_component_idx) {
+    }
+
+    virtual ~object_sstable_set() {}
+
+    virtual std::unique_ptr<sstable_set_impl> clone() const override {
+        return std::make_unique<object_sstable_set>(*this);
+    }
+
+    virtual std::vector<shared_sstable> select(const dht::partition_range& range) const override {
+        oacs_logger.debug("Selecting range {}", range);
+
+        if (_object_id_pk_component_idx && range.is_singular() && range.start()->is_inclusive()) {
+            const auto& range_first_pk = range.start()->value().key();
+            bytes_view range_first_pk_comp = range_first_pk->get_component(*_schema, *_object_id_pk_component_idx);
+
+            return boost::copy_range<std::vector<shared_sstable>>(_sstables | boost::adaptors::filtered([&, this] (auto& sst) {
+                const auto& first = sst->get_first_partition_key();
+                const auto& last = sst->get_last_partition_key();
+
+                bytes_view first_pk_comp = first.get_component(*sst->get_schema(), *_object_id_pk_component_idx);
+                bytes_view last_pk_comp = last.get_component(*sst->get_schema(), *_object_id_pk_component_idx);
+
+                // return as candidate a sstable that breaks the invariant
+                if (first_pk_comp != last_pk_comp) {
+                    return true;
+                }
+                if (range_first_pk_comp == first_pk_comp) {
+                    oacs_logger.debug("OACS: Returning sstable {} in response to select on range {}", sst->get_filename(), range);
+                    return true;
+                }
+                return false;
+            }));
+        }
+        return _sstables;
+    }
+};
+
+std::unique_ptr<sstable_set_impl> object_aware_compaction_strategy::make_sstable_set(schema_ptr schema) const {
+    if (!_object_id_pk_component) {
+        return std::make_unique<bag_sstable_set>();
+    }
+    auto pk_component_idx = _object_id_pk_component_idx ? *_object_id_pk_component_idx : retrieve_pk_component_idx(schema);
+    return std::make_unique<object_sstable_set>(std::move(schema), pk_component_idx);
+}
+
 object_aware_compaction_strategy::object_aware_compaction_strategy(const std::map<sstring, sstring>& options)
     : compaction_strategy_impl(options)
     , _backlog_tracker(std::make_unique<unimplemented_backlog_tracker>())
@@ -1005,6 +1061,8 @@ object_aware_compaction_strategy::object_aware_compaction_strategy(const std::ma
 
     if (options.contains(object_id_key)) {
         _object_id_pk_component = options.at(object_id_key);
+    } else {
+        oacs_logger.warn("Object identifier wasn't set via option {}, please set one for the strategy to work.", object_id_key);
     }
 }
 
