@@ -13,7 +13,6 @@ Internally, it works on the CDC level. Before, for each mutation on CDC-enabled 
 ### Known limitations/TO-DO/Future plans
 - Code quality.
 - Not tested on many data types, multi-node Scylla clusters.
-- Because we write an entire chunk and this chunk boundary can be in the middle of `.csv` row, the last row might be cut "in half" (**that will be soon fixed**).
 - The CDC log is divided into multiple S3 objects - exactly 1 per shard. That could cause this file to get very big. Maybe there should be a separate file per time window (a new file every 5 minutes). Another problem is that the files contain all CDC log tables in single file (per shard) - there should be separate file per each CDC log table.
 - If you insert not much data, it won't be enough to fill a chunk, so no CDC log entries will be visible on S3. It should be flushed periodically (probably linked to the separate file per time window idea).
 - In CDC, there's a great care given that CDC log rows are in the same node/shard as base table rows (achieved via CDC partitioner among others). But inserted chunks are partitioned without this care - chunk can end up on another node/shard than base table row. It could be fixed by slightly changing the S3 schema and introducing a new partitioner.
@@ -23,3 +22,4 @@ Internally, it works on the CDC level. Before, for each mutation on CDC-enabled 
 - Applying mutations to all `s3` tables every time a new chunk is added - should only apply a mutation to `chunk` table and not touch other tables.
 - `md5`, `creation_date` column not filled correctly. 
 - Serialization probably could be done more efficiently.
+- Size variables in the code are of type `int` - will overflow if file gets bigger than 2GB.
