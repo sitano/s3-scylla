@@ -32,6 +32,7 @@
 #include "cdc/split.hh"
 #include "cdc/cdc_options.hh"
 #include "cdc/change_visitor.hh"
+#include "cdc/s3_log.hh"
 #include "bytes.hh"
 #include "database.hh"
 #include "db/config.hh"
@@ -155,6 +156,8 @@ class cdc::cdc_service::impl : service::migration_listener::empty_listener {
     friend cdc_service;
     db_context _ctxt;
     bool _stopped = false;
+    s3_log_accumulator _s3_log_accumulator;
+
 public:
     impl(db_context ctxt)
         : _ctxt(std::move(ctxt))
@@ -1753,7 +1756,7 @@ cdc::cdc_service::impl::augment_mutation_call(lowres_clock::time_point timeout, 
                 tracing::trace(tr_state, "CDC: Preimage not enabled for the table, not querying current value of {}", m.decorated_key());
             }
 
-            return f.then([trans = std::move(trans), &mutations, idx, tr_state, &details] (lw_shared_ptr<cql3::untyped_result_set> rs) mutable {
+            return f.then([this, trans = std::move(trans), &mutations, idx, tr_state, &details] (lw_shared_ptr<cql3::untyped_result_set> rs) mutable {
                 auto& m = mutations[idx];
                 auto& s = m.schema();
 
@@ -1777,8 +1780,15 @@ cdc::cdc_service::impl::augment_mutation_call(lowres_clock::time_point timeout, 
                     process_changes_without_splitting(m, trans, preimage, postimage);
                 }
                 auto [log_mut, touched_parts] = std::move(trans).finish();
-                const int generated_count = log_mut.size();
+
+                _s3_log_accumulator.append_cdc_log_mutations(log_mut);
+
+                int generated_count = log_mut.size();
                 mutations.insert(mutations.end(), std::make_move_iterator(log_mut.begin()), std::make_move_iterator(log_mut.end()));
+
+                auto s3_log_mutations = _s3_log_accumulator.generate_mutations();
+                generated_count += s3_log_mutations.size();
+                mutations.insert(mutations.end(), std::make_move_iterator(s3_log_mutations.begin()), std::make_move_iterator(s3_log_mutations.end()));
 
                 // `m` might be invalidated at this point because of the push_back to the vector
                 tracing::trace(tr_state, "CDC: Generated {} log mutations from {}", generated_count, mutations[idx].decorated_key());
