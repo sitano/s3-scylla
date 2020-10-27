@@ -11,14 +11,14 @@ for i in {1..999}; do
 done
 trap "rm -rf tmpdir tmpdir_s3" EXIT
 
-# upload objects
-time aws s3 --endpoint http://localhost:8000 cp tmpdir s3://bucket_2/tmpdir --recursive
+ENDPOINT="${ENDPOINT:http://13.49.78.57:80}"
+echo "uploading to ${ENDPOINT}...."
 
-# echo "sleeping before read..."
-# sleep 60
+# upload objects
+time aws s3 --endpoint ${ENDPOINT} cp tmpdir s3://bucket_2/tmpdir --recursive
 
 # download objects
-time aws s3 --endpoint http://localhost:8000 cp s3://bucket_2/tmpdir tmpdir_s3 --recursive
+time aws s3 --endpoint ${ENDPOINT} cp s3://bucket_2/tmpdir tmpdir_s3 --recursive
 
 # compare
 for i in {1..999}; do
