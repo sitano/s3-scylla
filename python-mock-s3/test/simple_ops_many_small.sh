@@ -11,7 +11,7 @@ for i in {1..999}; do
 done
 trap "rm -rf tmpdir tmpdir_s3" EXIT
 
-ENDPOINT="${ENDPOINT:http://13.49.78.57:80}"
+ENDPOINT="${ENDPOINT:-http://13.49.78.57:80}"
 echo "uploading to ${ENDPOINT}...."
 
 # upload objects

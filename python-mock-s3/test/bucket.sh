@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENDPOINT="${ENDPOINT:http://13.49.78.57:80}"
+ENDPOINT="${ENDPOINT:-http://13.49.78.57:80}"
 echo "creating on ${ENDPOINT}...."
 
 # create bucket

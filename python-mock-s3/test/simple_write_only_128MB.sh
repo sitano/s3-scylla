@@ -6,7 +6,7 @@ openssl rand -out tmpfile $((128*1024*1024))
 # head -c 128M </dev/urandom > tmpfile
 trap "rm tmpfile" EXIT
 
-ENDPOINT="${ENDPOINT:http://13.49.78.57:80}"
+ENDPOINT="${ENDPOINT:-http://13.49.78.57:80}"
 echo "uploading to ${ENDPOINT}...."
 
 # upload object
