@@ -1,5 +1,4 @@
 from builtins import object
-import uuid
 
 
 class Bucket(object):
@@ -69,6 +68,7 @@ class VersionHeader(object):
         self.md5 = md5
         self.size = size
         self.metadata = metadata
+
 
 class PartHeader(object):
     def __init__(self, object_id, version, part, blob_id, md5, size):

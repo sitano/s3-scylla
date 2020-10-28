@@ -9,7 +9,6 @@ profile-view:
 	# sudo apt-get install kcachegrind
 	pyprof2calltree -i profile.out -k
 
-
 deps:
 	pip install -r requirements.txt
 

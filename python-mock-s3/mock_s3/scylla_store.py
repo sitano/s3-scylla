@@ -1,4 +1,3 @@
-from datetime import datetime
 import logging
 import json
 import hashlib
@@ -105,7 +104,10 @@ class ScyllaStore(object):
                 ix INT,
                 data BLOB,
                 PRIMARY KEY ((blob_id, partition), ix)
-            ) WITH CLUSTERING ORDER BY (ix ASC) and compaction = { 'class': 'ObjectAwareCompactionStrategy', 'object-identifier': 'blob_id' };
+            ) WITH CLUSTERING ORDER BY (ix ASC) and compaction = { 
+                'class': 'ObjectAwareCompactionStrategy', 
+                'object-identifier': 'blob_id' 
+            };
             ''',
             '''
             CREATE TABLE IF NOT EXISTS multipart_upload (
@@ -207,11 +209,9 @@ class ScyllaStore(object):
             logging.info("missing version")
             return None
 
-        item = S3Item(bucket, key=item_name, **metadata)
-        return item
+        return S3Item(bucket, key=item_name, **metadata)
 
     def get_item_metadata(self, obj):
-        metadata = object()
         if obj.metadata is None or obj.metadata == '':
             ver = self.get_version_header(obj.object_id, obj.version)
             if ver is None:
@@ -219,8 +219,10 @@ class ScyllaStore(object):
             metadata = version_to_metadata(ver)
         else:
             metadata = json.loads(obj.metadata)
+
         metadata['version'] = obj.version
         metadata['object_id'] = obj.object_id
+
         return metadata
 
     def read_item(self, output_stream, item, start=None, length=None):
@@ -295,8 +297,9 @@ class ScyllaStore(object):
             'size': size,
         }
 
-        self.session.execute("UPDATE version SET md5 = %s, metadata = %s, size = %s WHERE object_id = %s AND version = %s",
-                             (digest, json.dumps(metadata), size, ver.object_id, ver.version))
+        self.session.execute(
+            "UPDATE version SET md5 = %s, metadata = %s, size = %s WHERE object_id = %s AND version = %s",
+            (digest, json.dumps(metadata), size, ver.object_id, ver.version))
 
         self.session.execute("UPDATE object SET version = %s, metadata = %s  WHERE bucket_id = %s AND key = %s",
                              (ver.version, json.dumps(version_to_metadata(ver)), obj.bucket_id, obj.key))
@@ -309,7 +312,8 @@ class ScyllaStore(object):
                              "VALUES (%s, %s, %s,"
                              "%s, %s, %s, currentTimestamp(), '', %s, '')",
                              (object_id, bucket_id, version,
-                              self.chunk_size, self.chunks_per_partition,  headers['content-type'], size))
+                              self.chunk_size, self.chunks_per_partition, headers['content-type'], size))
+
         return self.get_version_header(object_id, version)
 
     # Chunk/parts operations
@@ -359,19 +363,18 @@ class ScyllaStore(object):
 
     def read_parts(self, output_stream, item, start, length):
         parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
-                             (item.object_id, item.version)).all()
-        #FIXME: should be returned sorted but order by doesn't work
-        def partNum(item):
-            return item.part
-        parts.sort(key=partNum)
+                                     (item.object_id, item.version)).all()
+
+        # FIXME: should be returned sorted but order by doesn't work
+        parts.sort(key=lambda i: i.part)
 
         logging.info("read all parts [parts = %s version = %d]" % (parts, item.version))
 
-        current_start = 0 # absolute position in object
+        current_start = 0  # absolute position in object
         for part in parts:
             if length <= 0:
                 return
-            part_start = 0 # position in part blob
+            part_start = 0  # position in part blob
             if start > current_start:
                 part_start = start - current_start
 
@@ -380,14 +383,15 @@ class ScyllaStore(object):
             if part_start >= part.size:
                 current_start += part.size
                 logging.info("skipping part.part=%d part.size=%d" % (part.part, part.size))
-                continue # skipping this part
+                continue  # skipping this part
 
             logging.info("sending part.part=%d" % part.part)
 
-            self.read_chunks(output_stream, part.blob_id, part_start, min(part.size, length), item.chunk_size, item.chunks_per_partition)
+            self.read_chunks(output_stream, part.blob_id, part_start, min(part.size, length), item.chunk_size,
+                             item.chunks_per_partition)
             current_start += part.size
             length -= part.size
-        #TODO: if at this point length > 0 then something went wrong (requested more data than we have)
+        # TODO: if at this point length > 0 then something went wrong (requested more data than we have)
 
     def read_chunks(self, output_stream, blob_id, start_byte, length, chunk_size, partition_chunks):
         end_byte = start_byte + length - 1
@@ -434,13 +438,15 @@ class ScyllaStore(object):
             version = obj.version + 1
 
         if obj is None:
-            self.session.execute("INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
-                                 "VALUES (uuid(), %s, %s, uuid(), %s, %s)",
-                                (key, version, bucket.bucket_id, json.dumps(headers)))
+            self.session.execute(
+                "INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
+                "VALUES (uuid(), %s, %s, uuid(), %s, %s)",
+                (key, version, bucket.bucket_id, json.dumps(headers)))
         else:
-            self.session.execute("INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
-                                 "VALUES (%s, %s, %s, uuid(), %s, %s)",
-                                (obj.object_id, key, version, bucket.bucket_id, json.dumps(headers)))
+            self.session.execute(
+                "INSERT INTO multipart_upload (object_id, key, version, upload_id, bucket_id, metadata)"
+                "VALUES (%s, %s, %s, uuid(), %s, %s)",
+                (obj.object_id, key, version, bucket.bucket_id, json.dumps(headers)))
 
         # TODO: possibly this could be improved
         upload = self.session.execute(
@@ -450,13 +456,14 @@ class ScyllaStore(object):
         # TODO: not sure if according to doc version should be generated on create req
         self.insert_version(bucket.bucket_id, upload.object_id, version, headers, 0)
 
-        logging.info('multipart upload with version [key = %s version = %d upload_id = %s]' % (key, version, upload.upload_id))
+        logging.info(
+            'multipart upload with version [key = %s version = %d upload_id = %s]' % (key, version, upload.upload_id))
         return upload.upload_id
 
     def complete_multipart_upload(self, bucket_name, key, uploadId):
         logging.info('complete multipart upload [key = %s upload_id = %s]' % (key, uploadId))
         upload = self.session.execute(f"SELECT * FROM multipart_upload WHERE key = %s AND upload_id = {uploadId}",
-                                    (key,)).one()
+                                      (key,)).one()
 
         size, digest = self.gather_parts_headers(upload.object_id, upload.version)
 
@@ -470,11 +477,10 @@ class ScyllaStore(object):
 
     def gather_parts_headers(self, object_id, version):
         parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
-                             (object_id, version)).all()
-        #FIXME: should be returned sorted but order by doesn't work
-        def partNum(item):
-            return item.part
-        parts.sort(key=partNum)
+                                     (object_id, version)).all()
+
+        # FIXME: should be returned sorted but order by doesn't work
+        parts.sort(key=lambda item: item.part)
 
         size = 0
         m = hashlib.md5()
@@ -484,13 +490,17 @@ class ScyllaStore(object):
 
         return size, m.hexdigest()
 
-    def upload_part(self, key, partNumber, uploadId, data, size):
+    def upload_part(self, key, part_number, upload_id, data, size):
         # TODO: some validation on uploadId would be great (or binding differently)
         # TODO: should upload_id be part of partition key?
-        upload = self.session.execute(f"SELECT object_id, version FROM multipart_upload WHERE key = %s AND upload_id = {uploadId} ALLOW FILTERING",
-                                      (key,)).one()
+        upload = self.session.execute(
+            f"SELECT object_id, version FROM multipart_upload WHERE key = %s AND upload_id = {upload_id} ALLOW FILTERING",
+            (key,)).one()
+
         ver = self.get_version_header(upload.object_id, upload.version)
-        return self.write_part(ver, partNumber, data, size)
+
+        return self.write_part(ver, part_number, data, size)
+
 
 def row_to_object(row):
     if row:
@@ -522,6 +532,7 @@ def row_to_version(row):
     else:
         return None
 
+
 def row_to_part(row):
     if row:
         return PartHeader(
@@ -534,6 +545,7 @@ def row_to_part(row):
         )
     else:
         return None
+
 
 def version_to_metadata(ver):
     return {

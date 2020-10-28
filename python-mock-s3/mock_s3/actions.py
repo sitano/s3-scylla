@@ -133,6 +133,7 @@ def delete_item(handler, bucket_name, item_name):
     # TODO: not implemented
     # handler.server.store.delete_item(bucket_name, item_name)
 
+
 def delete_items(handler, bucket_name, keys):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
@@ -144,6 +145,7 @@ def delete_items(handler, bucket_name, keys):
     xml = xml_templates.deleted_xml.format(contents=xml)
     handler.write(xml)
 
+
 def create_multipart_upload(handler, bucket_name, key, headers):
     handler.send_response(200)
     handler.send_header('Content-Type', 'application/xml')
@@ -152,6 +154,7 @@ def create_multipart_upload(handler, bucket_name, key, headers):
     xml = xml_templates.create_multipart_upload_xml.format(
         bucket_name=bucket_name, key=key, upload_id=uploadId)
     handler.write(xml)
+
 
 def persistent_headers(headers):
     return {k: v for k, v in headers.items() if k in {
@@ -162,6 +165,7 @@ def persistent_headers(headers):
         'content-type',
         'expires',
     }}
+
 
 def complete_multipart_upload(handler, bucket_name, key, uploadId):
     handler.send_response(200)
@@ -176,6 +180,7 @@ def complete_multipart_upload(handler, bucket_name, key, uploadId):
         etag=digest,
     )
     handler.write(xml)
+
 
 def upload_part(handler, key, partNumber, uploadId, size, data):
     digest = handler.server.store.upload_part(key, int(partNumber), uploadId, data, size)
