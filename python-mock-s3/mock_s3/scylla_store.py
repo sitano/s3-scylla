@@ -17,7 +17,7 @@ class ScyllaStore(object):
                  username='', password='',
                  compaction_strategy=False):
 
-        auth_provider=None
+        auth_provider = None
         if username or password:
             auth_provider = PlainTextAuthProvider(username=username, password=password)
 
@@ -74,7 +74,9 @@ class ScyllaStore(object):
                 bucket_id UUID,
                 key TEXT,
                 object_id UUID,
+                blob_id UUID,
                 version INT,
+                parts BOOL,
                 metadata TEXT,
                 PRIMARY KEY (bucket_id, key)
             );
@@ -84,26 +86,25 @@ class ScyllaStore(object):
                 object_id UUID,
                 bucket_id UUID,
                 version INT,
+                blob_id UUID,
                 chunk_size INT,
                 chunks_per_partition INT,
-                content_type TEXT,
                 creation_date TIMESTAMP,
-                md5 TEXT,
+                digest TEXT,
                 size INT,
+                parts BOOL,
                 metadata TEXT,
                 PRIMARY KEY (object_id, version)
             ) WITH CLUSTERING ORDER BY (version DESC);
             ''',
             '''
              CREATE TABLE IF NOT EXISTS part (
-                object_id UUID,
-                version INT,
-                part INT,
                 blob_id UUID,
-                md5 TEXT,
+                part INT,
+                digest TEXT,
                 size INT,
-                PRIMARY KEY (object_id, version, part)
-            ) WITH CLUSTERING ORDER BY (version DESC, part ASC);
+                PRIMARY KEY (blob_id, part)
+            ) WITH CLUSTERING ORDER BY (part ASC);
             ''',
             '''
             CREATE TABLE IF NOT EXISTS chunk (
@@ -116,11 +117,10 @@ class ScyllaStore(object):
             ''',
             '''
             CREATE TABLE IF NOT EXISTS multipart_upload (
-                object_id UUID,
                 key TEXT,
-                version INT,
                 upload_id UUID,
                 bucket_id UUID,
+                blob_id UUID,
                 metadata TEXT,
                 PRIMARY KEY (key, upload_id)
             );
@@ -222,21 +222,7 @@ class ScyllaStore(object):
             logging.info("missing version")
             return None
 
-        return S3Item(bucket, key=item_name, **metadata)
-
-    def get_item_metadata(self, obj):
-        if obj.metadata is None or obj.metadata == '':
-            ver = self.get_version_header(obj.object_id, obj.version)
-            if ver is None:
-                return None
-            metadata = version_to_metadata(ver)
-        else:
-            metadata = json.loads(obj.metadata)
-
-        metadata['version'] = obj.version
-        metadata['object_id'] = obj.object_id
-
-        return metadata
+        return S3Item(bucket, key=item_name, obj=obj)
 
     # TODO: support reading whole partition with paging
     def read_item(self, output_stream, item, start=None, length=None):
@@ -300,19 +286,19 @@ class ScyllaStore(object):
             # write data in one part
             digest = self.write_part(ver, 1, data, size)
 
-        # update metadata+md5
-        ver.md5 = digest
+        # update metadata+digest
+        ver.digest = digest
         ver.size = size
 
         metadata = {
             'content_type': headers['content-type'],
             'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-            'md5': digest,
+            'digest': digest,
             'size': size,
         }
 
         self.session.execute(
-            "UPDATE version SET md5 = %s, metadata = %s, size = %s WHERE object_id = %s AND version = %s",
+            "UPDATE version SET digest = %s, metadata = %s, size = %s WHERE object_id = %s AND version = %s",
             (digest, json.dumps(metadata), size, ver.object_id, ver.version))
 
         self.session.execute("UPDATE object SET version = %s, metadata = %s  WHERE bucket_id = %s AND key = %s",
@@ -322,7 +308,7 @@ class ScyllaStore(object):
 
     def insert_version(self, bucket_id, object_id, version, headers, size):
         self.session.execute("INSERT INTO version (object_id, bucket_id, version, "
-                             "chunk_size, chunks_per_partition, content_type, creation_date, md5, size, metadata) "
+                             "chunk_size, chunks_per_partition, content_type, creation_date, digest, size, metadata) "
                              "VALUES (%s, %s, %s,"
                              "%s, %s, %s, currentTimestamp(), '', %s, '')",
                              (object_id, bucket_id, version,
@@ -342,7 +328,7 @@ class ScyllaStore(object):
 
         digest = self.write_chunks(part_header.blob_id, data, size, version.chunk_size, version.chunks_per_partition)
 
-        self.session.execute("UPDATE part SET md5 = %s WHERE object_id = %s AND version = %s AND part = %s",
+        self.session.execute("UPDATE part SET digest = %s WHERE object_id = %s AND version = %s AND part = %s",
                              (digest, version.object_id, version.version, part))
 
         return digest
@@ -487,7 +473,7 @@ class ScyllaStore(object):
 
         self.session.execute(f"DELETE FROM multipart_upload WHERE key = %s AND upload_id = {upload.upload_id}",
                              (upload.key,))
-        return item.md5
+        return item.digest
 
     def gather_parts_headers(self, object_id, version):
         parts = self.session.execute("SELECT * FROM part WHERE object_id = %s AND version = %s",
@@ -500,7 +486,7 @@ class ScyllaStore(object):
         m = hashlib.md5()
         for part in parts:
             size += part.size
-            m.update(part.md5.encode('utf-8'))
+            m.update(part.digest.encode('utf-8'))
 
         return size, m.hexdigest()
 
@@ -514,62 +500,6 @@ class ScyllaStore(object):
         ver = self.get_version_header(upload.object_id, upload.version)
 
         return self.write_part(ver, part_number, data, size)
-
-
-def row_to_object(row):
-    if row:
-        return ObjectHeader(
-            bucket_id=row.bucket_id,
-            key=row.key,
-            object_id=row.object_id,
-            version=row.version,
-            metadata=row.metadata,
-        )
-    else:
-        return None
-
-
-def row_to_version(row):
-    if row:
-        return VersionHeader(
-            object_id=row.object_id,
-            bucket_id=row.bucket_id,
-            version=row.version,
-            chunk_size=row.chunk_size,
-            chunks_per_partition=row.chunks_per_partition,
-            content_type=row.content_type,
-            creation_date=row.creation_date,
-            md5=row.md5,
-            size=row.size,
-            metadata=row.metadata
-        )
-    else:
-        return None
-
-
-def row_to_part(row):
-    if row:
-        return PartHeader(
-            object_id=row.object_id,
-            version=row.version,
-            part=row.part,
-            blob_id=row.blob_id,
-            md5=row.md5,
-            size=row.size,
-        )
-    else:
-        return None
-
-
-def version_to_metadata(ver):
-    return {
-        'content_type': ver.content_type,
-        'creation_date': ver.creation_date.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
-        'md5': ver.md5,
-        'size': ver.size,
-        'chunk_size': ver.chunk_size,
-        'chunks_per_partition': ver.chunks_per_partition,
-    }
 
 
 def remove_prefix(text, prefix):

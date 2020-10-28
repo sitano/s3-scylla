@@ -129,12 +129,6 @@ class S3Handler(BaseHTTPRequestHandler):
             else:
                 item_name = path.strip('/')
 
-            headers = {}
-            for key in self.headers:
-                headers[key.lower()] = self.headers[key]
-            if 'content-type' not in headers:
-                headers['content-type'] = 'application/octet-stream'
-
             if 'uploads' in qs:
                 req_type = 'CreateMultipartUpload'
             elif 'uploadId' in qs:
@@ -144,7 +138,7 @@ class S3Handler(BaseHTTPRequestHandler):
                 req_type = 'delete_keys'
 
         if req_type == 'delete_keys':
-            size = int(self.headers['content-length'])
+            size = int(self.headers['Content-Length'])
             data = self.rfile.read(size)
             root = ET.fromstring(data)
             keys = []
@@ -152,7 +146,7 @@ class S3Handler(BaseHTTPRequestHandler):
                 keys.append(obj.find('Key').text)
             delete_items(self, bucket_name, keys)
         elif req_type == 'CreateMultipartUpload':
-            create_multipart_upload(self, bucket_name, item_name, headers)
+            create_multipart_upload(self, bucket_name, item_name, self.headers)
         elif req_type == 'CompleteMultipartUpload':
             complete_multipart_upload(self, bucket_name, item_name, qs['uploadId'][0])
         else:
@@ -214,21 +208,17 @@ class S3Handler(BaseHTTPRequestHandler):
                 self.send_response(400)
 
         elif req_type == 'store':
-            bucket = self.server.store.get_bucket(bucket_name)
-            if bucket:
-                headers = {}
-                for key in self.headers:
-                    headers[key.lower()] = self.headers[key]
-                if 'content-type' not in headers:
-                    headers['content-type'] = 'application/octet-stream'
-
-                size = int(headers['content-length'])
-
-                item = self.server.store.store_item(bucket, item_name, headers, size, self.rfile)
-                self.send_response(200)
-                self.send_header('Etag', '"%s"' % item.md5)
+            size = int(self.headers['Content-Length'])
+            if size < 1:
+                self.send_response(400, '')
             else:
-                self.send_response(404, '')
+                bucket = self.server.store.get_bucket(bucket_name)
+                if bucket:
+                    item = self.server.store.store_item(bucket, item_name, self.headers, size, self.rfile)
+                    self.send_response(200)
+                    self.send_header('Etag', '"%s"' % item.digest)
+                else:
+                    self.send_response(404, '')
 
         elif req_type == 'upload_part':
             size = int(self.headers['Content-Length'])

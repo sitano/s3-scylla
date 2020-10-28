@@ -33,7 +33,7 @@ bucket_query_content_xml = \
     '<Contents>' + \
     '<Key>{s3_item.key}</Key>' + \
     '<LastModified>{s3_item.creation_date}</LastModified>' + \
-    '<ETag>&quot;{s3_item.md5}&quot;</ETag>' + \
+    '<ETag>&quot;{s3_item.digest}&quot;</ETag>' + \
     '<Size>{s3_item.size}</Size>' + \
     '<StorageClass>STANDARD</StorageClass>' + \
     '<Owner>' + \

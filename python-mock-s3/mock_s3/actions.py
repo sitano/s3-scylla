@@ -79,7 +79,7 @@ def get_item(handler, bucket_name, item_name):
         handler.send_response(206)
         handler.send_header('Content-Type', item.content_type)
         handler.send_header('Last-Modified', last_modified_str)
-        handler.send_header('Etag', item.md5)
+        handler.send_header('Etag', item.digest)
         handler.send_header('Accept-Ranges', 'bytes')
         range_ = handler.headers['range'].split('=')[1]
         start = int(range_.split('-')[0])
@@ -96,7 +96,7 @@ def get_item(handler, bucket_name, item_name):
 
     handler.send_response(200)
     handler.send_header('Last-Modified', last_modified_str)
-    handler.send_header('Etag', item.md5)
+    handler.send_header('Etag', item.digest)
     handler.send_header('Accept-Ranges', 'bytes')
     handler.send_header('Content-Type', item.content_type)
     handler.send_header('Content-Length', content_length)
@@ -115,7 +115,7 @@ def get_item(handler, bucket_name, item_name):
                 "AcceptRanges": "bytes",
                 "LastModified": last_modified_str,
                 "ContentLength": 0,
-                "ETag": item.md5,
+                "ETag": item.digest,
                 "ContentType": "application/x-directory",
                 "Metadata": {
                     "ctime": str(int(time.mktime(last_modified.timetuple()))),

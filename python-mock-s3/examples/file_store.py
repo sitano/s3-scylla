@@ -7,8 +7,8 @@ from datetime import datetime
 
 from cassandra.cluster import Cluster
 
-from .errors import BucketNotEmpty, NoSuchBucket
-from .models import Bucket, BucketQuery, S3Item
+from mock_s3.errors import BucketNotEmpty, NoSuchBucket
+from mock_s3.models import Bucket, BucketQuery, S3Item
 
 CONTENT_FILE = '.mocks3_content'
 METADATA_FILE = '.mocks3_metadata'
@@ -68,11 +68,7 @@ class FileStore(object):
     def get_all_keys(self, bucket, **kwargs):
         if bucket.name == 'test':
             matches = []
-            metadata = {}
-            metadata['size'] = 15
-            metadata['md5'] = 'testing'
-            metadata['content_type'] = 'testing'
-            metadata['creation_date'] = datetime.now()
+            metadata = {'size': 15, 'md5': 'testing', 'content_type': 'testing', 'creation_date': datetime.now()}
 
             example_query = self.session.execute("SELECT cql_version FROM system.local").one()
             example_s3_item = "scylla_cql_" + str(example_query[0])
