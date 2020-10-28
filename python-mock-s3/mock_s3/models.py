@@ -25,6 +25,7 @@ class BucketQuery(object):
         self.delimiter = delimiter
 
 
+# TODO: it must have blob_id
 class S3Item(object):
     def __init__(self, bucket, key, **kwargs):
         self.bucket = bucket

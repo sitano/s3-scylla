@@ -1,7 +1,7 @@
 import logging
 import json
 import hashlib
-from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy
+from cassandra.cluster import Cluster, _NOT_SET, TokenAwarePolicy, DCAwareRoundRobinPolicy, PlainTextAuthProvider
 
 from .models import *
 
@@ -12,14 +12,22 @@ class ScyllaStore(object):
     chunk_size = 1024 * 128  # bytes
     chunks_per_partition = 512
 
-    def __init__(self, hosts=_NOT_SET, port=9042):
-        self.cluster = Cluster(contact_points=hosts, port=port,
+    def __init__(self,
+                 hosts=_NOT_SET, port=9042,
+                 username='', password='',
+                 compaction_strategy=False):
+
+        auth_provider=None
+        if username or password:
+            auth_provider = PlainTextAuthProvider(username=username, password=password)
+
+        self.cluster = Cluster(contact_points=hosts, port=port, auth_provider=auth_provider,
                                load_balancing_policy=TokenAwarePolicy(DCAwareRoundRobinPolicy()))
 
         self.session = self.cluster.connect()
 
         self.ensure_keyspace()
-        self.ensure_tables()
+        self.ensure_tables(compaction_strategy)
 
         self.create_bucket_stmt = self.session.prepare("INSERT INTO bucket "
                                                        "(name, bucket_id, creation_date, metadata) VALUES "
@@ -43,7 +51,7 @@ class ScyllaStore(object):
             ''')
         self.session.set_keyspace(self.keyspace)
 
-    def ensure_tables(self):
+    def ensure_tables(self, compaction_strategy=False):
         for cql in [
             # UUID is just an option. Better suggestions?
             # metadata: text stores metadata in JSON format
@@ -104,10 +112,7 @@ class ScyllaStore(object):
                 ix INT,
                 data BLOB,
                 PRIMARY KEY ((blob_id, partition), ix)
-            ) WITH CLUSTERING ORDER BY (ix ASC) and compaction = { 
-                'class': 'ObjectAwareCompactionStrategy', 
-                'object-identifier': 'blob_id' 
-            };
+            ) WITH CLUSTERING ORDER BY (ix ASC);
             ''',
             '''
             CREATE TABLE IF NOT EXISTS multipart_upload (
@@ -121,6 +126,14 @@ class ScyllaStore(object):
             );
             '''
         ]:
+            if compaction_strategy:
+                if 'CREATE TABLE' in cql and 'chunk' in cql:
+                    cql[:-1] += '''
+                    AND compaction = { 
+                        'class': 'ObjectAwareCompactionStrategy', 
+                        'object-identifier': 'blob_id' 
+                    }
+                    '''
             self.session.execute(cql)
 
     # Bucket operations
@@ -225,6 +238,7 @@ class ScyllaStore(object):
 
         return metadata
 
+    # TODO: support reading whole partition with paging
     def read_item(self, output_stream, item, start=None, length=None):
         self.read_parts(output_stream, item, start, length)
 

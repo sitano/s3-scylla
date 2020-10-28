@@ -290,7 +290,9 @@ def main(argv=None):
     server.set_mock_hostname(args.hostname)
 
     logging.info('Connect to scylla storage %s:%d' % (args.scylla_hosts, args.scylla_port))
-    server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port))
+    server.set_store(ScyllaStore(hosts=args.scylla_hosts, port=args.scylla_port,
+                                 username=args.username, password=args.password,
+                                 compaction_strategy=args.compaction_strategy))
     server.store.chunk_size = args.chunk_size
     server.store.chunks_per_partition = args.chunks_per_partition
 
@@ -327,6 +329,15 @@ def parse(argv=None):
     parser.add_argument('--chunks_per_partition', dest='chunks_per_partition', action='store',
                         default=512, type=int,
                         help='number of chunks per partition')
+    parser.add_argument('--compaction_strategy', dest='compaction_strategy', action='store',
+                        default=False, type=bool,
+                        help='use object-aware compaction strategy')
+    parser.add_argument('--username', dest='username', action='store',
+                        default='', type=str,
+                        help='password authentication username')
+    parser.add_argument('--password', dest='password', action='store',
+                        default='', type=str,
+                        help='password authentication password')
 
     args = parser.parse_args(argv)
 
